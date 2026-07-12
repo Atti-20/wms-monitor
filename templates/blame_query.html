@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>错标查询与分析</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#128270;</text></svg>">
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/base.css" rel="stylesheet">
+    <style>
+        :root { --transition: 0.4s var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)); }
+        body { padding: var(--spacing-page); }
+
+        /* ===== 第一行：搜索栏 + 订单详情 ===== */
+        .top-row { display: flex; gap: 14px; margin-bottom: 14px; align-items: stretch; }
+        .search-col {
+            flex: 1; min-width: 0;
+            transition: flex var(--transition), max-width var(--transition);
+        }
+        .search-col.collapsed {
+            flex: 0 0 calc(50% - 7px); max-width: calc(50% - 7px);
+        }
+        .summary-col {
+            flex: 0 0 0px; min-width: 0; overflow: hidden; opacity: 0;
+            transition: flex var(--transition), opacity 0.4s ease 0.15s;
+        }
+        .summary-col.visible {
+            flex: 1; opacity: 1;
+        }
+
+        .search-bar {
+            background: var(--card-bg); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md); padding: 16px; height: 100%;
+            display: flex; flex-direction: column; gap: 10px; justify-content: center;
+            transition: border-color var(--transition-normal);
+        }
+        .search-bar:focus-within {
+            border-color: var(--border-medium);
+        }
+        .search-bar label { font-size: 0.8rem; color: #94a3b8; margin-bottom: 2px; display: block; }
+        .search-bar .field { display: flex; flex-direction: column; }
+
+        .form-control, .form-select {
+            background-color: var(--surface-3, #1e2530); border: 1px solid var(--border-medium, #334155); color: var(--text-main);
+            padding: 8px 12px; border-radius: var(--radius-sm); font-size: 0.85rem; width: 100%; box-sizing: border-box;
+            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+        .form-control::placeholder { color: var(--text-dim); }
+        .form-control:focus, .form-select:focus { border-color: var(--accent-blue); outline: none; box-shadow: 0 0 0 3px var(--accent-blue-dim, rgba(56,189,248,0.12)); }
+
+        .btn-sm-custom { padding: 8px 16px; font-size: 0.85rem; font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; border: none; width: 100%; transition: all var(--transition-fast); position: relative; overflow: hidden; }
+        .btn-sm-custom:active { transform: scale(0.97); }
+        .btn-sm-custom:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-blue { background: var(--accent-blue); color: #0c1929; }
+        .btn-blue:hover { box-shadow: var(--shadow-glow-blue, 0 0 20px rgba(56,189,248,0.2)); }
+        .btn-green { background: var(--accent-green); color: #0c2918; }
+        .btn-green:hover { box-shadow: var(--shadow-glow-green, 0 0 20px rgba(52,211,153,0.2)); }
+
+        .summary-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+            background: var(--card-bg); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md); overflow: hidden; height: 100%;
+        }
+        .summary-item { padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); border-right: 1px solid var(--border-subtle); }
+        .summary-item:nth-child(4n) { border-right: none; }
+        .summary-item:nth-child(n+5) { border-bottom: none; }
+        .summary-label { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 3px; font-weight: 500; }
+        .summary-value { font-size: 0.9rem; font-weight: 600; color: var(--text-main); word-break: break-all; }
+.summary-value.hl-orange { color: var(--accent-orange); }
+.summary-value.hl-green { color: var(--accent-green); font-size: 1.05rem; }
+.hl-purple { color: #ce93d8; }
+.summary-sub-row { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.85rem; font-weight: 600; }
+.summary-sub-label { color: var(--text-dim); font-size: 0.7rem; font-weight: 500; }
+
+
+        /* ===== 双列行（等宽） ===== */
+        .dual-row {
+            display: flex; gap: 14px; margin-bottom: 14px; align-items: stretch;
+            opacity: 0; transform: translateY(16px); pointer-events: none;
+            transition: opacity 0.45s ease, transform 0.45s ease;
+        }
+        .dual-row.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .dual-row > .dual-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+        .dual-row > .dual-col > .module-card { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .dual-row > .dual-col > .module-card > .module-body { flex: 1; overflow-y: auto; min-height: 0; }
+        .dual-row > .dual-col > .module-card > div[style*="overflow-x"] { flex: 1; overflow-y: auto; min-height: 0; }
+
+        /* 第二行：错拣分析和客诉工单固定最大高度，超出滚动 */
+        #row2 > .dual-col > .module-card > .module-body { max-height: 400px; }
+
+        /* 第三行：左侧明细表最大高度400px，超出滚动 */
+        #row3 > .dual-col:first-child > .module-card > div[style*="overflow-x"] { max-height: 400px; }
+
+        .module-card { background: var(--card-bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); overflow: hidden; transition: border-color var(--transition-normal); }
+        .module-card:hover { border-color: var(--border-medium); }
+        .module-header { padding: 10px 16px; font-size: 0.85rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); background: var(--surface-1, #12151c); }
+        .module-body { padding: 14px 16px; }
+
+        .data-table { font-size: 0.88rem; }
+        .data-table td { white-space: nowrap; }
+        .row-highlight { background: rgba(255,152,0,0.08) !important; border-left: 3px solid var(--accent-orange); }
+        .target-badge { background: var(--accent-orange); color: #000; padding: 2px 6px; border-radius: 3px; font-size: 0.72rem; font-weight: 700; margin-left: 5px; }
+
+        .expand-btn { text-align: center; padding: 9px; color: var(--accent-blue); font-size: 0.8rem; cursor: pointer; background: var(--surface-1, rgba(0,0,0,0.15)); transition: background var(--transition-fast), color var(--transition-fast); }
+        .expand-btn:hover { background: var(--accent-blue-dim, rgba(56,189,248,0.08)); }
+
+        .analysis-card { border-color: rgba(0,230,118,0.25); }
+        .analysis-card .module-header { background: rgba(0,230,118,0.08); color: #86efac; }
+        .analysis-input-row { display: flex; gap: 8px; align-items: center; }
+        .analysis-input-row input { flex: 1; }
+
+        .sku-result-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 10px; }
+        .sku-result-item {
+            background: rgba(0,0,0,0.2); border-radius: 5px; padding: 8px 10px;
+            border-left: 3px solid rgba(0,230,118,0.4);
+            display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+        }
+        .sku-loc { font-size: 0.9rem; font-weight: 700; color: var(--accent-green); letter-spacing: 0.3px; }
+        .sku-name { font-size: 0.82rem; color: #94a3b8; margin-top: 2px; line-height: 1.3; }
+        .sku-cat { font-size: 0.75rem; color: #475569; margin-top: 1px; }
+        .sku-meta { font-size: 0.8rem; color: #64748b; text-align: right; white-space: nowrap; }
+        .sku-meta .qty { color: var(--accent-green); font-weight: 700; font-size: 0.9rem; }
+        .sku-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.68rem; font-weight: 700; margin-left: 4px; vertical-align: middle; }
+        .badge-task { background: var(--accent-orange); color: #000; }
+        .badge-same { background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); }
+        .badge-adj { background: rgba(255,152,0,0.2); color: #ffcc80; border: 1px solid rgba(255,152,0,0.4); }
+        .badge-aisle { background: rgba(0,198,255,0.12); color: #7dd3fc; border: 1px solid rgba(0,198,255,0.25); }
+
+        .diag-box { background: rgba(0,0,0,0.25); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+        .diag-tag { display: inline-block; padding: 4px 9px; border-radius: 3px; font-size: 0.8rem; font-weight: 700; margin-right: 6px; }
+        .diag-red { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+        .diag-orange { background: rgba(255,152,0,0.15); color: #ffcc80; border: 1px solid rgba(255,152,0,0.3); }
+        .diag-yellow { background: rgba(250,204,21,0.15); color: #fde047; border: 1px solid rgba(250,204,21,0.3); }
+        .diag-detail { font-size: 0.82rem; color: #94a3b8; margin-top: 6px; line-height: 1.6; }
+        .diag-detail strong { color: #e2e8f0; }
+
+        .ticket-card { border-color: rgba(239,68,68,0.25); }
+        .ticket-card .module-header { background: rgba(239,68,68,0.08); color: #fca5a5; }
+        .ticket-item { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 12px; margin-bottom: 8px; border-left: 3px solid rgba(239,68,68,0.4); }
+        .ticket-item:last-child { margin-bottom: 0; }
+        .ticket-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 8px; }
+        .ticket-field-label { font-size: 0.75rem; color: #64748b; margin-bottom: 1px; }
+        .ticket-field-val { font-size: 0.88rem; color: #e2e8f0; }
+        .ticket-field-val.hl { color: #fca5a5; font-weight: 600; }
+        .ticket-desc { background: rgba(0,0,0,0.2); padding: 10px 12px; border-radius: 5px; font-size: 0.85rem; color: #cbd5e1; white-space: pre-wrap; margin-top: 4px; }
+        .ticket-link { color: var(--accent-blue); text-decoration: none; font-size: 0.8rem; }
+        .ticket-link:hover { text-decoration: underline; }
+        .ticket-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .ticket-images img { max-width: 160px; max-height: 160px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; transition: transform 0.2s; object-fit: cover; }
+        .ticket-images img:hover { transform: scale(1.03); border-color: var(--accent-blue); }
+
+        .stock-card { border-color: rgba(168,85,247,0.25); }
+        .stock-card .module-header { background: rgba(168,85,247,0.08); color: #d8b4fe; }
+
+        .img-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 9999; justify-content: center; align-items: center; cursor: zoom-out; }
+        .img-modal img { max-width: 90%; max-height: 90%; border-radius: 6px; }
+
+        /* 移动端适配 */
+@media (max-width: 768px) {
+.top-row { flex-direction: column; }
+.search-col.collapsed { flex: none; max-width: none; }
+.summary-grid { grid-template-columns: repeat(2, 1fr); }
+.summary-item { padding: 10px 12px; }
+.dual-row { flex-direction: column; }
+.data-table { font-size: 0.78rem; }
+.data-table th, .data-table td { padding: 7px 8px; }
+.sku-result-grid { grid-template-columns: 1fr; }
+.analysis-input-row { flex-direction: column; }
+.analysis-input-row input { max-width: none !important; }
+.ticket-grid { grid-template-columns: 1fr; }
+.ticket-images img { max-width: 120px; max-height: 120px; }
+.module-header { font-size: 0.82rem; padding: 8px 12px; }
+.module-body { padding: 10px 12px; }
+.module-card { border-radius: var(--radius-sm); }
+.search-bar { flex-direction: column; gap: 8px; }
+.search-bar input, .search-bar select { width: 100%; max-width: none; }
+}
+@media (max-width: 480px) {
+.summary-grid { grid-template-columns: 1fr; gap: 6px; }
+.summary-item { padding: 8px 10px; }
+.summary-item .val { font-size: 1rem; }
+.summary-item .label { font-size: 0.68rem; }
+.module-header { font-size: 0.78rem; padding: 6px 10px; }
+.module-body { padding: 8px 10px; }
+.data-table { font-size: 0.72rem; min-width: 480px; }
+.data-table th, .data-table td { padding: 5px 6px; }
+.page-body { padding: 10px; }
+.ticket-images img { max-width: 90px; max-height: 90px; }
+.analysis-input-row input { font-size: 16px; }
+}
+
+/* 加载动画 - 继承 base.css */
+</style>
+</head>
+<body>
+
+    <div class="page-header-bar" style="position:static; padding:14px 0; margin-bottom:14px;">
+        <h1 class="page-title"><span class="title-icon">🔎</span> 错标查询与分析</h1>
+        <a href="/" class="btn-back">← 返回目录</a>
+    </div>
+
+    <!-- ===== 第一行：搜索栏 + 订单详情（动画展开） ===== -->
+    <div class="top-row">
+        <div class="search-col" id="searchCol">
+            <div class="search-bar">
+                <div style="display:flex; flex-wrap:nowrap; gap:6px; margin-bottom:2px;">
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.8rem; color:#94a3b8; padding:4px 8px; border-radius:4px; transition:all 0.2s; white-space:nowrap; flex-shrink:0;" id="modeOrder" onclick="switchMode('order')">
+                        <input type="radio" name="queryMode" value="order" checked style="accent-color:var(--accent-blue);"> <span style="white-space:nowrap;">订单号</span>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.8rem; color:#94a3b8; padding:4px 8px; border-radius:4px; transition:all 0.2s; white-space:nowrap; flex-shrink:0;" id="modeParcel" onclick="switchMode('parcel')">
+                        <input type="radio" name="queryMode" value="parcel" style="accent-color:var(--accent-green);"> <span style="white-space:nowrap;">包裹号</span>
+                    </label>
+                </div>
+                <div class="field" id="whField">
+                    <label>调拨仓</label>
+                    <select id="whSelect" class="form-select">
+                        <option value="">请选择</option>
+                        <option value="546">东莞虎门仓</option>
+                        <option value="616">东莞信立仓</option>
+                        <option value="636">深圳清溪仓</option>
+                        <option value="479">深圳龙华二仓</option>
+                        <option value="501">深圳福永仓</option>
+                        <option value="557">深圳南山仓</option>
+                        <option value="349">惠州惠城仓</option>
+                        <option value="100">深圳平湖仓</option>
+                        <option value="189">深圳光明仓</option>
+                    </select>
+                </div>
+                <div class="field" id="orderField">
+                    <label>订单号</label>
+                    <input type="text" id="orderInput" class="form-control" autocomplete="off" onfocus="this.select()" placeholder="输入订单号">
+                </div>
+                <div class="field" id="parcelField" style="display:none;">
+                    <label>包裹号</label>
+                    <input type="text" id="parcelInput" class="form-control" autocomplete="off" onfocus="this.select()" placeholder="输入包裹号">
+                </div>
+                <div>
+                    <button class="btn-sm-custom btn-blue" onclick="executeQuery()" id="queryBtn">&#128269; 查询</button>
+                </div>
+            </div>
+        </div>
+        <div class="summary-col" id="summaryCol">
+            <div class="summary-grid" id="summaryCard">
+                <div class="summary-item"><div class="summary-label">订单号</div><div class="summary-value" id="r_order">-</div></div>
+                <div class="summary-item" style="grid-column:span 2;"><div class="summary-label">目标报错商品</div><div class="summary-value hl-orange" id="r_sku_name">-</div></div>
+                <div class="summary-item"><div class="summary-label">商品规格</div><div class="summary-value" id="r_sku_spec">-</div></div>
+                <div class="summary-item"><div class="summary-label">拣货人</div><div class="summary-value hl-green" id="r_picker">-</div><div class="summary-sub-row"><span class="summary-label">复核人</span><div class="summary-value hl-green" id="r_checker">-</div></div></div>
+                <div class="summary-item" style="grid-column:span 2;"><div class="summary-label">拣货子任务号</div><div class="summary-value" id="r_task">-</div></div>
+                <div class="summary-item"><div class="summary-label">拣货完成时间</div><div class="summary-value" id="r_pick_time">-</div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 第二行：错拣分析(左) + 客诉工单(右) ===== -->
+    <div class="dual-row" id="row2">
+        <div class="dual-col">
+            <div class="module-card analysis-card">
+                <div class="module-header"><span>错拣分析</span></div>
+                <div class="module-body">
+                    <div class="analysis-input-row">
+                        <input type="text" id="skuBrandInput" class="form-control" style="max-width:120px;" placeholder="品牌(可选)" autocomplete="off" onfocus="this.select()">
+                        <input type="text" id="skuSearchInput" class="form-control" placeholder="输入商品名称关键字" autocomplete="off" onfocus="this.select()">
+                        <button class="btn-sm-custom btn-green" style="width:auto; padding:8px 14px;" onclick="searchSkuLocation()" id="skuSearchBtn">&#128300; 分析</button>
+                    </div>
+                    <div id="skuSearchDiagnosis" style="display:none; margin-top:10px;"></div>
+                    <div id="skuSearchResult" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="dual-col">
+            <div class="module-card ticket-card" id="ticketCard">
+                <div class="module-header">
+                    <span>客诉工单详情</span>
+                    <span id="ticket_count" style="color:#fff; background:rgba(0,0,0,0.3); padding:1px 7px; border-radius:3px; font-size:0.7rem;">-</span>
+                </div>
+                <div class="module-body" id="ticketBody">
+                    <p style="color:#64748b;">查询订单后显示</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 第三行：储位子任务明细(左) + 库存快照(右) ===== -->
+    <div class="dual-row" id="row3">
+        <div class="dual-col">
+            <div class="module-card" id="detailTableCard">
+                <div class="module-header" style="color:#e2e8f0;">储位拣货子任务明细</div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead><tr>
+                            <th>库位</th>
+                            <th>SKU编码</th>
+                            <th>品牌</th>
+                            <th>商品名称</th>
+                            <th>规格</th>
+                            <th>拣货数量</th>
+                        </tr></thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                    <div class="expand-btn" id="toggleTableBtn" onclick="toggleRows()" style="display:none;">
+                        &#9660; 展开明细 (<span id="extraCount">0</span>)
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="dual-col">
+            <div class="module-card stock-card" id="stockCard">
+                <div class="module-header">
+                    <span>拣货当天(<span id="s_date">-</span>) 库位库存快照</span>
+                    <span id="s_location" style="color:#fff; background:rgba(0,0,0,0.3); padding:1px 7px; border-radius:3px; font-size:0.7rem;">-</span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead style="color:#d8b4fe;"><tr>
+                            <th>SKU编码</th>
+                            <th>品牌</th>
+                            <th>商品名称</th>
+                            <th>规格</th>
+                            <th>结存</th>
+                            <th>可用</th>
+                            <th>入库</th>
+                            <th>出库</th>
+                        </tr></thead>
+                        <tbody id="stockTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="img-modal" id="imgModal" onclick="this.style.display='none'">
+        <img id="imgModalSrc" src="" alt="客诉图片">
+    </div>
+
+    <script src="/static/auth_check.js"></script>
+    <script>
+        function showImgModal(src) {
+            document.getElementById('imgModalSrc').src = src;
+            document.getElementById('imgModal').style.display = 'flex';
+        }
+
+        let isExpanded = false;
+        let currentDetails = [];
+        let currentOrderSkuCode = '';
+        let currentOrderLocation = '';
+        let currentStockDate = '';
+        let currentMode = 'order';  // 'order' 或 'parcel'
+
+        document.getElementById('orderInput').addEventListener('keypress', function(e) { if (e.key === 'Enter') executeQuery(); });
+        document.getElementById('parcelInput').addEventListener('keypress', function(e) { if (e.key === 'Enter') executeQuery(); });
+
+        function switchMode(mode) {
+            currentMode = mode;
+            if (mode === 'order') {
+                document.getElementById('whField').style.display = '';
+                document.getElementById('orderField').style.display = '';
+                document.getElementById('parcelField').style.display = 'none';
+            } else {
+                document.getElementById('whField').style.display = 'none';
+                document.getElementById('orderField').style.display = 'none';
+                document.getElementById('parcelField').style.display = '';
+            }
+        }
+
+        function toggleRows() {
+            isExpanded = !isExpanded;
+            const rows = document.querySelectorAll('.other-sku-row');
+            rows.forEach(function(r) { r.style.display = isExpanded ? 'table-row' : 'none'; });
+            document.getElementById('toggleTableBtn').innerHTML = isExpanded ? '&#9650; 收起' : '&#9660; 展开同单其他商品 (' + rows.length + ')';
+        }
+
+        // ===== 恢复订单详情卡片结构 =====
+        function resetSummaryCard() {
+            const idLabel = currentMode === 'parcel' ? '\u5305\u88f9\u53f7' : '\u8ba2\u5355\u53f7';
+            const idStyle = currentMode === 'parcel' ? 'font-size:0.78rem; word-break:keep-all; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' : '';
+            document.getElementById('summaryCard').innerHTML =
+                '<div class="summary-item"><div class="summary-label">' + idLabel + '</div><div class="summary-value" id="r_order" style="' + idStyle + '">-</div></div>' +
+                '<div class="summary-item" style="grid-column:span 2;"><div class="summary-label">\u76ee\u6807\u62a5\u9519\u5546\u54c1</div><div class="summary-value hl-orange" id="r_sku_name">-</div></div>' +
+                '<div class="summary-item"><div class="summary-label">\u5546\u54c1\u89c4\u683c</div><div class="summary-value" id="r_sku_spec">-</div></div>' +
+'<div class="summary-item"><div class="summary-label">\u62e3\u8d27\u4eba</div><div class="summary-value hl-green" id="r_picker">-</div><div class="summary-sub-row"><span class="summary-label">\u590d\u6838\u4eba</span><div class="summary-value hl-green" id="r_checker">-</div></div></div>' +
+'<div class="summary-item" style="grid-column:span 2;"><div class="summary-label">\u62e3\u8d27\u5b50\u4efb\u52a1\u53f7</div><div class="summary-value" id="r_task">-</div></div>' +
+'<div class="summary-item"><div class="summary-label">\u62e3\u8d27\u5b8c\u6210\u65f6\u95f4</div><div class="summary-value" id="r_pick_time">-</div></div>';
+        }
+
+        // ===== 动画控制 =====
+        function showResults() {
+            document.getElementById('searchCol').classList.add('collapsed');
+            document.getElementById('summaryCol').classList.add('visible');
+            setTimeout(function() {
+                document.getElementById('row2').classList.add('show');
+            }, 200);
+            setTimeout(function() {
+                document.getElementById('row3').classList.add('show');
+            }, 350);
+        }
+
+        async function executeQuery() {
+            let orderNo = '';
+            let whId = '';
+            let parcelNo = '';
+
+            if (currentMode === 'order') {
+                orderNo = document.getElementById('orderInput').value.trim();
+                whId = document.getElementById('whSelect').value;
+                if (!orderNo) return alert('请输入订单号！');
+                if (!whId) return alert('请选择目标调拨仓！');
+            } else {
+                parcelNo = document.getElementById('parcelInput').value.trim();
+                if (!parcelNo) return alert('请输入包裹号！');
+                if (parcelNo.length < 7) return alert('包裹号格式不正确，长度不足！');
+            }
+
+            const btn = document.getElementById('queryBtn');
+            btn.innerText = '...';
+            btn.disabled = true;
+            // 重置
+            document.getElementById('tableBody').innerHTML = '';
+            document.getElementById('stockTableBody').innerHTML = '';
+            document.getElementById('ticketBody').innerHTML = '<p style="color:#64748b;">加载中...</p>';
+            document.getElementById('ticket_count').innerText = '-';
+            document.getElementById('skuSearchDiagnosis').style.display = 'none';
+            document.getElementById('skuSearchDiagnosis').innerHTML = '';
+            document.getElementById('skuSearchResult').style.display = 'none';
+            document.getElementById('skuSearchResult').innerHTML = '';
+            document.getElementById('skuBrandInput').value = '';
+            document.getElementById('skuSearchInput').value = '';
+            // 订单详情显示加载动画
+            const loadingText = currentMode === 'parcel' ? '正在查询包裹...' : '正在查询订单...';
+            document.getElementById('summaryCard').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;min-height:80px;"><div class="loading-spinner"></div><span style="margin-left:10px;color:#64748b;font-size:0.85rem;">' + loadingText + '</span></div>';
+
+            try {
+                let apiUrl = '/api/blame_query?';
+                if (currentMode === 'order') {
+                    apiUrl += 'orderNo=' + encodeURIComponent(orderNo) + '&whId=' + whId;
+                } else {
+                    apiUrl += 'parcelNo=' + encodeURIComponent(parcelNo);
+                }
+                const res = await fetch(apiUrl);
+                if (!res.ok) { alert('服务器错误 (' + res.status + ')'); return; }
+                const result = await res.json();
+
+                if (result.ok) {
+                    const info = result.data.order_info;
+                    let details = result.data.details;
+                    const stockDetails = result.data.stock_details;
+
+                    // 恢复订单详情结构并填充数据
+                    resetSummaryCard();
+                    document.getElementById('r_order').innerText = currentMode === 'parcel' ? (info.parcel_no || '-') : (info.order_no || '-');
+                    document.getElementById('r_sku_name').innerHTML = (info.sku_name || '未知商品') + '<span style="color:#94a3b8;font-weight:400;"> (' + (info.brand_name || '') + ')</span><br><span style="font-size:0.75rem;color:#64748b;font-weight:400;">' + (info.sku_code || '-') + '</span>';
+                    document.getElementById('r_sku_spec').innerText = info.sku_unit_desc || '-';
+document.getElementById('r_picker').innerHTML = info.picker_name + (info.picker_type_info ? ' <span style="font-size:0.75rem;color:#94a3b8;font-weight:400;">' + info.picker_type_info + '</span>' : '');
+document.getElementById('r_checker').innerHTML = (info.checker_name || '-') + (info.checker_type_info ? ' <span style="font-size:0.75rem;color:#94a3b8;font-weight:400;">' + info.checker_type_info + '</span>' : '');
+document.getElementById('r_task').innerText = info.zone_pick_bill_no;
+document.getElementById('r_pick_time').innerText = info.pick_time || '-';
+                    // 如果SKU级别拣货时间缺失，显示提醒
+                    if (info.pick_time_note) {
+                        var ptEl = document.getElementById('r_pick_time');
+                        ptEl.innerHTML = (info.pick_time || '-') + '<div style="font-size:0.7rem;color:#f59e0b;margin-top:2px;">' + info.pick_time_note + '</div>';
+                    }
+
+                    // 包裹号模式下更新orderNo为后端返回的值（用于工单查询）
+                    if (currentMode === 'parcel' && info.order_no) {
+                        orderNo = info.order_no;
+                    }
+
+                    // 触发展开动画
+                    showResults();
+
+                    // 库存快照
+                    if (info.target_location && stockDetails && stockDetails.length > 0) {
+                        document.getElementById('s_location').innerText = info.target_location;
+                        document.getElementById('s_date').innerText = info.stock_date;
+                        document.getElementById('stockTableBody').innerHTML = stockDetails.map(function(s) {
+                            const isT = String(s.skuCode) === String(info.sku_code);
+                            return '<tr class="' + (isT ? 'row-highlight' : '') + '">' +
+                                '<td>' + s.skuCode + '</td><td>' + (s.skuBrand || '-') + '</td>' +
+                                '<td>' + s.skuName + (isT ? ' <span class="target-badge">目标</span>' : '') + '</td>' +
+                                '<td>' + s.skuUnitDesc + '</td>' +
+                                '<td style="font-weight:600;">' + s.totalQty + '</td>' +
+                                '<td style="font-weight:600;color:var(--accent-green);">' + s.availableQty + '</td>' +
+                                '<td>' + s.inboundQty + '</td><td>' + s.outboundQty + '</td>' +
+                                '</tr>';
+                        }).join('');
+                    } else {
+                        document.getElementById('stockTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:20px;">暂无库存快照</td></tr>';
+                    }
+
+                    currentDetails = details;
+                    currentOrderSkuCode = String(info.sku_code);
+                    currentOrderLocation = info.target_location || '';
+                    currentStockDate = info.stock_date || '';
+
+                    const targetSkuStr = String(info.sku_code);
+                    details.sort(function(a, b) {
+                        if (String(a.skuCode) === targetSkuStr) return -1;
+                        if (String(b.skuCode) === targetSkuStr) return 1;
+                        return 0;
+                    });
+
+                    document.getElementById('tableBody').innerHTML = details.map(function(d) {
+                        const isT = String(d.skuCode) === targetSkuStr;
+                        return '<tr class="' + (isT ? 'row-highlight' : 'other-sku-row') + '" style="' + (isT ? '' : 'display:none;') + '">' +
+                            '<td>' + (d.locationCode || '-') + '</td><td>' + d.skuCode + '</td><td>' + (d.skuBrand || '-') + '</td>' +
+                            '<td>' + d.skuName + (isT ? ' <span class="target-badge">目标</span>' : '') + '</td>' +
+                            '<td>' + (d.skuUnitDesc || '-') + '</td>' +
+                            '<td style="font-weight:600;color:var(--accent-blue);">' + d.skuQty + ' <small>' + (d.skuUnit || '') + '</small></td>' +
+                            '</tr>';
+                    }).join('');
+
+                    isExpanded = false;
+                    const otherCount = details.length - 1;
+                    const toggleBtn = document.getElementById('toggleTableBtn');
+                    if (otherCount > 0) { toggleBtn.innerHTML = '&#9660; 展开同单其他商品 (' + otherCount + ')'; toggleBtn.style.display = 'block'; }
+                    else { toggleBtn.style.display = 'none'; }
+
+                    if (orderNo) {
+                        fetchTicketInfo(orderNo);
+                    } else {
+                        document.getElementById('ticketBody').innerHTML = '<p style="color:#64748b;">未能反查到订单号，无法查询客诉工单</p>';
+                        document.getElementById('ticket_count').innerText = '0';
+                    }
+                } else {
+                    resetSummaryCard();
+                    alert('查询失败: ' + result.msg);
+                }
+            } catch (err) {
+                resetSummaryCard();
+                alert('网络异常: ' + err.message);
+            } finally {
+                btn.innerHTML = '&#128269; 查询';
+                btn.disabled = false;
+            }
+        }
+
+        async function fetchTicketInfo(orderNo) {
+            try {
+                const res = await fetch('/api/ticket_query?orderNo=' + encodeURIComponent(orderNo));
+                if (!res.ok) return;
+                const result = await res.json();
+                if (!result.ok || !result.data || !result.data.tickets) return;
+
+                const tickets = result.data.tickets;
+                const ticketBody = document.getElementById('ticketBody');
+                const ticketCount = document.getElementById('ticket_count');
+
+                if (tickets.length === 0) {
+                    ticketBody.innerHTML = '<p style="color:#64748b;">该订单暂无客诉工单</p>';
+                    ticketCount.innerText = '0';
+                    return;
+                }
+
+                ticketCount.innerText = tickets.length;
+                ticketBody.innerHTML = tickets.map(function(t) {
+                    return '<div class="ticket-item" id="ticket_' + t.ticket_id + '">' +
+                        '<div class="ticket-grid">' +
+                            '<div><div class="ticket-field-label">创建时间</div><div class="ticket-field-val">' + (t.create_time || '-') + '</div></div>' +
+                            '<div><div class="ticket-field-label">问题类型</div><div class="ticket-field-val hl">' + (t.problem_name || '-') + '</div></div>' +
+                            '<div><div class="ticket-field-label">原因分类</div><div class="ticket-field-val hl">' + (t.reason_name || '-') + '</div></div>' +
+                        '</div>' +
+                        '<div style="margin-bottom:6px;"><div class="ticket-field-label">客诉内容</div><div class="ticket-desc">' + (t.question_desc || '无描述') + '</div></div>' +
+                        '<div style="margin-bottom:6px;"><div class="ticket-field-label">处理结果</div><div class="ticket-desc">' + (t.process_result || '未处理') + '</div></div>' +
+                        '<div><div class="ticket-field-label">客诉图片</div><div class="ticket-images" id="ticket_imgs_' + t.ticket_id + '"><span style="color:#475569;font-size:0.72rem;">加载中...</span></div></div>' +
+                        '<div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">' +
+                            '<span style="font-size:0.68rem; color:#475569;">ID: ' + t.ticket_id + '</span>' +
+                            '<a href="' + t.detail_url + '" target="_blank" class="ticket-link">查看详情 &#8594;</a>' +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+
+                for (const t of tickets) { fetchTicketImages(t.ticket_id); }
+            } catch (err) { console.error('客诉查询失败:', err); }
+        }
+
+        async function fetchTicketImages(ticketId) {
+            const container = document.getElementById('ticket_imgs_' + ticketId);
+            if (!container) return;
+            try {
+                const res = await fetch('/api/ticket_detail?ticketId=' + ticketId);
+                if (!res.ok) { container.innerHTML = '<span style="color:#475569;font-size:0.72rem;">加载失败</span>'; return; }
+                const result = await res.json();
+                if (!result.ok || !result.data || !result.data.pic_urls || result.data.pic_urls.length === 0) {
+                    container.innerHTML = '<span style="color:#475569;font-size:0.72rem;">无图片</span>';
+                    return;
+                }
+                container.innerHTML = result.data.pic_urls.map(function(url) {
+                    return '<img src="' + url + '" alt="客诉图片" onclick="showImgModal(\'' + url + '\')" onerror="this.style.display=\'none\'">';
+                }).join('');
+            } catch (err) { container.innerHTML = '<span style="color:#475569;font-size:0.72rem;">异常</span>'; }
+        }
+
+        // ===== 错拣商品断言分析 =====
+        document.getElementById('skuSearchInput').addEventListener('keypress', function(e) { if (e.key === 'Enter') searchSkuLocation(); });
+        document.getElementById('skuBrandInput').addEventListener('keypress', function(e) { if (e.key === 'Enter') searchSkuLocation(); });
+
+        function parseLocation(loc) {
+            if (!loc) return { aisle: '', seq: 0 };
+            const parts = loc.split('-');
+            if (parts.length >= 4) return { aisle: parts.slice(0, 3).join('-'), seq: parseInt(parts[3]) || 0 };
+            return { aisle: loc, seq: 0 };
+        }
+
+        function getLocationRelation(loc1, loc2) {
+            if (!loc1 || !loc2) return 'unknown';
+            if (loc1 === loc2) return 'same';
+            const p1 = parseLocation(loc1), p2 = parseLocation(loc2);
+            if (p1.aisle === p2.aisle) {
+                if (Math.abs(p1.seq - p2.seq) <= 2) return 'adjacent';
+                return 'same_aisle';
+            }
+            return 'different';
+        }
+
+        function getLocationRelationText(r) {
+            const m = { same: '同库位', adjacent: '相邻库位', same_aisle: '同通道', different: '不同通道' };
+            return m[r] || '未知';
+        }
+
+        function getCategory3(cat) {
+            if (!cat) return '';
+            const parts = cat.split('/');
+            return parts[parts.length - 1] || '';
+        }
+
+        async function searchSkuLocation() {
+            const keyword = document.getElementById('skuSearchInput').value.trim();
+            const brandKeyword = document.getElementById('skuBrandInput').value.trim();
+            if (!keyword && !brandKeyword) return alert('请输入商品名称或品牌！');
+
+            const btn = document.getElementById('skuSearchBtn');
+            const resultDiv = document.getElementById('skuSearchResult');
+            const diagDiv = document.getElementById('skuSearchDiagnosis');
+            btn.disabled = true; btn.innerText = '分析中...';
+            resultDiv.style.display = 'block';
+            diagDiv.style.display = 'none';
+            resultDiv.innerHTML = '<p style="color:#64748b; font-size:0.8rem;">查询中...</p>';
+
+            try {
+let url = '/api/sku_location_search?';
+if (keyword) url += 'skuName=' + encodeURIComponent(keyword) + '&';
+if (brandKeyword) url += 'skuBrand=' + encodeURIComponent(brandKeyword) + '&';
+if (currentOrderSkuCode) url += 'orderSkuCode=' + encodeURIComponent(currentOrderSkuCode) + '&';
+if (currentStockDate) url += 'date=' + encodeURIComponent(currentStockDate);
+
+                const res = await fetch(url);
+                if (!res.ok) { resultDiv.innerHTML = '<p style="color:#fca5a5;">服务器错误</p>'; return; }
+                const result = await res.json();
+                if (!result.ok) { resultDiv.innerHTML = '<p style="color:#fca5a5;">' + result.msg + '</p>'; return; }
+
+                const items = result.data.results;
+                const orderSkuInfo = result.data.order_sku_info;
+
+                if (items.length === 0) {
+                    resultDiv.innerHTML = '<p style="color:#64748b;">未找到可拣货位（可用库存为0或无此商品）</p>';
+                    return;
+                }
+
+                const taskSkuNames = currentDetails.map(function(d) { return (d.skuName || '').toLowerCase(); });
+                const taskSkuCodes = currentDetails.map(function(d) { return String(d.skuCode || ''); });
+                const diagnoses = [];
+
+                const orderLoc = currentOrderLocation || (orderSkuInfo ? orderSkuInfo.location_code : '');
+                const orderCategory = orderSkuInfo ? orderSkuInfo.category_name : '';
+                const orderBrand = orderSkuInfo ? orderSkuInfo.sku_brand : '';
+
+                for (const item of items) {
+                    const inTask = taskSkuNames.some(function(n) { return n === (item.sku_name || '').toLowerCase(); }) || taskSkuCodes.includes(String(item.sku_code));
+                    const relation = getLocationRelation(orderLoc, item.location_code);
+                    const cat3_order = getCategory3(orderCategory), cat3_item = getCategory3(item.category_name);
+                    const sameBrand = orderBrand && item.sku_brand && orderBrand === item.sku_brand;
+                    const sameCat = cat3_order && cat3_item && cat3_order === cat3_item;
+
+                    if (inTask && !diagnoses.some(function(d) { return d.type === 'no_label'; })) {
+                        diagnoses.push({ type: 'no_label', level: 'red', text: '未边拣边贴', detail: '错拣商品 [' + item.sku_name + '] 在本单拣货任务中，拣货人未按规范边拣边贴' });
+                    }
+                    if ((relation === 'same' || relation === 'adjacent' || relation === 'same_aisle') && !inTask && !diagnoses.some(function(d) { return d.type === 'adjacent_pick'; })) {
+                        diagnoses.push({ type: 'adjacent_pick', level: 'orange', text: '相邻库位拣错', detail: '错拣商品库位 [' + item.location_code + '] 与订单商品库位 [' + orderLoc + '] 为' + getLocationRelationText(relation) });
+                    }
+                    if ((sameCat || sameBrand) && (relation === 'same' || relation === 'adjacent') && !diagnoses.some(function(d) { return d.type === 'improve_location'; })) {
+                        let r = [];
+                        if (sameCat) r.push('同分类(' + cat3_item + ')');
+                        if (sameBrand) r.push('同品牌(' + item.sku_brand + ')');
+                        diagnoses.push({ type: 'improve_location', level: 'yellow', text: '建议改善拣货位', detail: r.join('+') + ' + ' + getLocationRelationText(relation) + '（' + item.location_code + ' vs ' + orderLoc + '），建议调整库位' });
+                    }
+                }
+
+                if (diagnoses.length > 0 && orderLoc) {
+                    diagDiv.style.display = 'block';
+                    const orderPrice = orderSkuInfo ? orderSkuInfo.sku_price : null;
+                    diagDiv.innerHTML = '<div class="diag-box">' +
+                        '<div>' + diagnoses.map(function(d) { return '<span class="diag-tag diag-' + d.level + '">' + d.text + '</span>'; }).join('') + '</div>' +
+                        '<div class="diag-detail">' + diagnoses.map(function(d) { return '<div>&#8226; ' + d.detail + '</div>'; }).join('') +
+                        '<div style="margin-top:4px;"><strong>订单商品:</strong> ' + orderLoc + ' | ' + (orderCategory || '-') + ' | ' + (orderBrand || '-') + (orderPrice ? ' | &#165;' + orderPrice : '') + '</div></div>' +
+                        '</div>';
+                } else if (!orderLoc) {
+                    diagDiv.style.display = 'block';
+                    diagDiv.innerHTML = '<div class="diag-box" style="color:#64748b;font-size:0.78rem;">请先查询订单后再分析（需订单商品库位信息）</div>';
+                }
+
+                // 排序：在本单 > 同库位 > 相邻 > 同通道 > 其他
+                const sortedItems = items.slice().sort(function(a, b) {
+                    const aInTask = taskSkuNames.some(function(n) { return n === (a.sku_name || '').toLowerCase(); }) || taskSkuCodes.includes(String(a.sku_code));
+                    const bInTask = taskSkuNames.some(function(n) { return n === (b.sku_name || '').toLowerCase(); }) || taskSkuCodes.includes(String(b.sku_code));
+                    if (aInTask !== bInTask) return aInTask ? -1 : 1;
+                    const relOrder = { same: 0, adjacent: 1, same_aisle: 2, different: 3, unknown: 4 };
+                    const aRel = relOrder[getLocationRelation(orderLoc, a.location_code)] || 4;
+                    const bRel = relOrder[getLocationRelation(orderLoc, b.location_code)] || 4;
+                    return aRel - bRel;
+                });
+
+                resultDiv.innerHTML = '<div class="sku-result-grid">' + sortedItems.map(function(item) {
+                    const inTask = taskSkuNames.some(function(n) { return n === (item.sku_name || '').toLowerCase(); }) || taskSkuCodes.includes(String(item.sku_code));
+                    const relation = getLocationRelation(orderLoc, item.location_code);
+                    let badges = '';
+                    if (inTask) badges += '<span class="sku-badge badge-task">在本单</span>';
+                    if (relation === 'same') badges += '<span class="sku-badge badge-same">同库位</span>';
+                    else if (relation === 'adjacent') badges += '<span class="sku-badge badge-adj">相邻</span>';
+                    else if (relation === 'same_aisle') badges += '<span class="sku-badge badge-aisle">同通道</span>';
+
+                    return '<div class="sku-result-item" style="cursor:pointer;" onclick="copySkuAndJump(\'' + item.sku_code + '\', \'' + (item.sku_brand || '').replace(/'/g, '') + '\', \'' + (item.sku_name || '').replace(/'/g, '') + '\')" title="点击复制SKU+商品名称">' +
+                        '<div style="min-width:0;">' +
+                            '<div class="sku-loc">' + item.location_code + badges + '</div>' +
+                            '<div class="sku-name">' + (item.sku_brand ? '<b>' + item.sku_brand + '</b> ' : '') + '[' + item.sku_code + '] ' + item.sku_name + '</div>' +
+                            '<div class="sku-cat">' + (item.category_name || '') + '</div>' +
+                        '</div>' +
+                        '<div class="sku-meta">' +
+                            '<div class="qty">' + item.available_qty + (item.sku_unit_desc || '') + '</div>' +
+                            (item.sku_price ? '<div style="color:var(--accent-orange);font-weight:600;">&#165;' + item.sku_price + '</div>' : '') +
+                        '</div>' +
+                    '</div>';
+                }).join('') + '</div>';
+
+            } catch (err) {
+                resultDiv.innerHTML = '<p style="color:#fca5a5;">异常: ' + err.message + '</p>';
+            } finally {
+                btn.disabled = false; btn.innerHTML = '&#128300; 分析';
+            }
+        }
+
+        function showCopyToast(text, ok) {
+            var toast = document.createElement('div');
+            toast.textContent = ok ? (text + ' 已复制') : ('复制失败，请手动复制: ' + text);
+            var bg = ok ? 'rgba(0,230,118,0.9)' : 'rgba(239,68,68,0.92)';
+            var color = ok ? '#000' : '#fff';
+            toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:' + bg + ';color:' + color + ';padding:8px 18px;border-radius:6px;font-size:0.85rem;font-weight:600;z-index:99999;pointer-events:none;';
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 2000);
+        }
+
+        // 降级复制：HTTP / 非安全上下文下 navigator.clipboard 不可用，改用 execCommand
+        function fallbackCopy(text) {
+            try {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                // 避免页面滚动 & 不可见
+                ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+                ta.setAttribute('readonly', '');
+                document.body.appendChild(ta);
+                ta.select();
+                ta.setSelectionRange(0, ta.value.length);
+                var ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                return ok;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function copySkuAndJump(skuCode, brand, skuName) {
+            var text = skuCode + (brand ? '[' + brand + ']' : '') + (skuName || '');
+            // 优先使用安全上下文下的 clipboard API（HTTPS / localhost）
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(function() {
+                    showCopyToast(text, true);
+                }).catch(function() {
+                    showCopyToast(text, fallbackCopy(text));
+                });
+            } else {
+                // HTTP + IP 访问场景：直接走降级方案
+                showCopyToast(text, fallbackCopy(text));
+            }
+        }
+    </script>
+</body>
+</html>

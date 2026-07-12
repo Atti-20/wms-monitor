@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>取消件与差异确认明细</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>">
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/base.css" rel="stylesheet">
+    <style>
+        /* 统计卡片 */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 18px 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: border-color var(--transition-normal), transform var(--transition-normal);
+        }
+        .stat-card:hover {
+            border-color: var(--border-medium);
+            transform: translateY(-2px);
+        }
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--accent-blue);
+        }
+        .stat-card:nth-child(2)::after { background: var(--accent-green); }
+        .stat-card:nth-child(3)::after { background: var(--accent-purple); }
+
+        .stat-val {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            display: block;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+        .stat-card:nth-child(2) .stat-val { color: var(--accent-green); }
+        .stat-card:nth-child(3) .stat-val { color: var(--accent-purple); font-size: 1.1rem; padding-top: 4px; }
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+            font-weight: 500;
+        }
+
+        /* 表格面板 */
+        .table-glass {
+            background-color: var(--card-bg);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+        }
+        .table { margin-bottom: 0; font-size: 0.82rem; color: var(--text-secondary); }
+        .table thead th {
+            background: var(--surface-1);
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-medium);
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 10px 10px;
+        }
+        .table tbody td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-subtle);
+            vertical-align: middle;
+        }
+        .table tbody tr:hover td {
+            background: rgba(56,189,248,0.04);
+            color: var(--text-main);
+        }
+        .table tbody tr:last-child td { border-bottom: none; }
+
+        #loadingState { display: none; text-align: center; padding: 50px; }
+
+@media (max-width: 768px) {
+.stats-container { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.stat-card { padding: 14px; }
+.stat-val { font-size: 1.2rem; }
+.table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius-sm); }
+.table { font-size: 0.75rem; min-width: 500px; }
+.table th, .table td { padding: 6px 5px; white-space: nowrap; }
+}
+@media (max-width: 480px) {
+.stats-container { grid-template-columns: 1fr; gap: 6px; }
+.stat-card { padding: 12px; flex-direction: row; align-items: center; gap: 8px; text-align: left; }
+.stat-val { font-size: 1.1rem; }
+.stat-label { font-size: 0.7rem; }
+.page-body { padding: 10px; }
+.table { font-size: 0.7rem; }
+.table th, .table td { padding: 5px 4px; }
+}
+    </style>
+</head>
+<body>
+    <div class="page-header-bar">
+        <h1 class="page-title"><span class="title-icon">📥</span> 清溪仓非翻包取消件明细</h1>
+        <div class="header-right">
+            <button class="btn-action primary" onclick="startFetch()" id="fetchBtn">🔄 开始抓取与分析</button>
+            <a href="#" class="btn-action success" id="downloadBtn" style="display: none; text-decoration: none;">📥 下载 Excel</a>
+            <a href="/" class="btn-back">← 返回目录</a>
+        </div>
+    </div>
+
+    <div class="page-body">
+        <div class="stats-container" id="statsContainer" style="display: none;">
+            <div class="stat-card">
+                <span class="stat-val" id="totalCount">0</span>
+                <span class="stat-label">总取消单量</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-val" id="confirmedCount">0</span>
+                <span class="stat-label">已确认差异人</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-val" id="waveStats">-</span>
+                <span class="stat-label">波次分布 (凌晨达/上午达)</span>
+            </div>
+        </div>
+
+        <div class="table-glass">
+            <div class="empty-state" id="emptyState" style="padding:60px 20px;">
+                <h5>点击右上角"开始抓取"提取今日数据</h5>
+                <p>系统将自动为您拉取清溪仓取消件列表，并逐个查询包裹差异确认日志</p>
+            </div>
+
+            <div id="loadingState">
+                <div class="loading-spinner" style="width:32px; height:32px; margin-bottom:16px;"></div>
+                <h5 style="color: var(--accent-blue); font-weight:600; margin-bottom:6px;">正在与 WMS 交互抓取数据</h5>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">正在拉取明细并寻找"确认差异人"，请耐心等待...</p>
+            </div>
+
+            <div class="table-responsive" style="display: none; max-height: calc(100vh - 220px); overflow-y: auto;" id="tableContainer">
+                <table class="table table-dark">
+                    <thead>
+                        <tr>
+                            <th width="70px">波次</th>
+                            <th width="170px">包裹号</th>
+                            <th width="90px">SKU</th>
+                            <th width="90px">品牌</th>
+                            <th>商品名称</th>
+                            <th width="50px">站区</th>
+                            <th width="50px">点位</th>
+                            <th width="100px">确认差异人</th>
+                            <th width="150px">确认时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/auth_check.js"></script>
+    <script>
+        async function startFetch() {
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('tableContainer').style.display = 'none';
+            document.getElementById('statsContainer').style.display = 'none';
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('fetchBtn').disabled = true;
+
+            try {
+                const res = await fetch('/api/fetch_cancel_data');
+                const result = await res.json();
+
+                if(res.ok && result.status === 'success') {
+                    const data = result.data;
+                    const total = data.length;
+                    const confirmed = data.filter(row => row['确认差异人'] && row['确认差异人'] !== '-').length;
+                    const waves = { '凌晨达': 0, '上午达': 0 };
+                    data.forEach(row => {
+                        const w = row['履约波次'];
+                        if (w.includes('凌晨')) waves['凌晨达']++;
+                        else if (w.includes('上午')) waves['上午达']++;
+                    });
+
+                    document.getElementById('totalCount').innerText = total;
+                    document.getElementById('confirmedCount').innerText = confirmed;
+                    document.getElementById('waveStats').innerText = `${waves['凌晨达']} / ${waves['上午达']}`;
+                    document.getElementById('statsContainer').style.display = 'grid';
+
+                    const tbody = document.getElementById('tableBody');
+                    tbody.innerHTML = data.map(row => `
+                        <tr>
+                            <td>${row['履约波次'] || '-'}</td>
+                            <td style="font-size:0.78rem;">${row['包裹号'] || '-'}</td>
+                            <td style="font-size:0.78rem;">${row['sku编码'] || '-'}</td>
+                            <td>${row['品牌'] ? `<span class="status-badge info">${row['品牌']}</span>` : '<span style="color:var(--text-dim);">-</span>'}</td>
+                            <td title="${row['商品名称']}"><div style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row['商品名称'] || '-'}</div></td>
+                            <td>${row['站区'] || '-'}</td>
+                            <td>${row['点位'] || '-'}</td>
+                            <td style="color:var(--accent-orange); font-weight:600;">${row['确认差异人'] || '-'}</td>
+                            <td style="color:var(--text-muted); font-size:0.8rem;">${row['确认差异时间'] || '-'}</td>
+                        </tr>
+                    `).join('');
+
+                    document.getElementById('loadingState').style.display = 'none';
+                    document.getElementById('tableContainer').style.display = 'block';
+
+                    const downloadBtn = document.getElementById('downloadBtn');
+                    downloadBtn.href = `/api/download_excel?file=${result.filename}`;
+                    downloadBtn.style.display = 'inline-block';
+                } else {
+                    alert("抓取失败: " + result.msg);
+                    document.getElementById('loadingState').style.display = 'none';
+                    document.getElementById('emptyState').style.display = 'block';
+                }
+            } catch (err) {
+                alert("网络或服务器异常");
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('emptyState').style.display = 'block';
+            } finally {
+                document.getElementById('fetchBtn').disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

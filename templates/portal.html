@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WMS 综合监控管理系统</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>">
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/base.css" rel="stylesheet">
+    <style>
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: var(--spacing-page);
+            overflow-x: hidden;
+        }
+        /* 背景光效 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -40%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 600px;
+            background: radial-gradient(ellipse, rgba(56,189,248,0.06) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .portal-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 2.5rem;
+            letter-spacing: -0.02em;
+            text-align: center;
+            color: var(--text-main);
+            position: relative;
+            z-index: 1;
+        }
+        .portal-title span {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-top: 6px;
+            letter-spacing: 0;
+        }
+
+        .card-container {
+            display: grid;
+            grid-template-columns: repeat(3, 280px);
+            gap: 16px;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .nav-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 32px 24px;
+            text-align: center;
+            text-decoration: none;
+            color: var(--text-main);
+            transition:
+                transform var(--duration-normal) var(--ease-out),
+                box-shadow var(--duration-normal) var(--ease-out),
+                border-color var(--duration-normal) var(--ease-out);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        .nav-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            opacity: 0.7;
+            transition: opacity var(--transition-fast);
+        }
+        .nav-card::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at 50% 0%, var(--card-glow) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity var(--duration-normal) var(--ease-out);
+            pointer-events: none;
+        }
+        .nav-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-medium);
+            box-shadow: var(--shadow-md);
+            color: var(--text-main);
+        }
+        .nav-card:hover::before { opacity: 1; }
+        .nav-card:hover::after { opacity: 1; }
+        .nav-card:active {
+            transform: translateY(-2px) scale(0.99);
+        }
+
+        .card-1 { --card-glow: rgba(56,189,248,0.06); }
+        .card-1::before { background: var(--accent-blue); }
+        .card-2 { --card-glow: rgba(52,211,153,0.06); }
+        .card-2::before { background: var(--accent-green); }
+        .card-3 { --card-glow: rgba(251,146,60,0.06); }
+        .card-3::before { background: var(--accent-orange); }
+        .card-4 { --card-glow: rgba(167,139,250,0.06); }
+        .card-4::before { background: var(--accent-purple); }
+
+        .card-icon {
+            font-size: 2.8rem;
+            margin-bottom: 16px;
+            display: block;
+        }
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+            letter-spacing: -0.01em;
+        }
+        .card-text { min-width: 0; }
+        .card-desc {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* Token 状态栏 */
+        .token-status-bar {
+            position: fixed;
+            top: 14px;
+            right: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 100;
+        }
+        .token-badge {
+            font-size: 0.72rem;
+            padding: 5px 10px;
+            border-radius: var(--radius-sm);
+            font-weight: 500;
+            transition: all var(--transition-normal);
+        }
+        .token-badge.ok {
+            background: var(--accent-green-dim);
+            color: var(--accent-green);
+            border: 1px solid rgba(52,211,153,0.2);
+        }
+        .token-badge.loading {
+            background: var(--accent-orange-dim);
+            color: var(--accent-orange);
+            border: 1px solid rgba(251,146,60,0.2);
+        }
+        .token-badge.error {
+            background: var(--danger-dim);
+            color: var(--danger);
+            border: 1px solid rgba(248,113,113,0.25);
+        }
+        .token-action-btn {
+            font-size: 0.72rem;
+            padding: 5px 10px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            background: var(--surface-3);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-medium);
+            transition: all var(--transition-fast);
+            font-weight: 500;
+        }
+        .token-action-btn:hover {
+            background: var(--surface-4);
+            color: var(--text-main);
+            border-color: var(--accent-blue);
+        }
+
+        /* Cookie 弹窗 */
+        .cookie-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        .cookie-modal-overlay.show { display: flex; }
+        .cookie-modal-box {
+            background: var(--surface-2);
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-lg);
+            padding: 28px;
+            width: 440px;
+            max-width: 90vw;
+            box-shadow: var(--shadow-lg);
+            animation: fadeInUp var(--duration-normal) var(--ease-out);
+        }
+        .cookie-modal-box h4 {
+            color: var(--accent-orange);
+            margin: 0 0 10px 0;
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+        .cookie-modal-box p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+            line-height: 1.6;
+        }
+        .cookie-modal-box textarea {
+            width: 100%;
+            background: var(--dark-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            margin-bottom: 16px;
+            font-size: 0.82rem;
+            resize: vertical;
+            min-height: 80px;
+            transition: border-color var(--transition-fast);
+        }
+        .cookie-modal-box textarea:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px var(--accent-blue-dim);
+        }
+        .cookie-modal-box textarea::placeholder {
+            color: var(--text-dim);
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal-actions button {
+            padding: 8px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 0.82rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all var(--transition-fast);
+        }
+        .modal-actions .btn-cancel {
+            background: transparent;
+            border: 1px solid var(--border-medium);
+            color: var(--text-secondary);
+        }
+        .modal-actions .btn-cancel:hover {
+            background: var(--surface-3);
+            color: var(--text-main);
+        }
+        .modal-actions .btn-confirm {
+            background: var(--accent-blue);
+            border: none;
+            color: #0c1929;
+            font-weight: 600;
+        }
+        .modal-actions .btn-confirm:hover {
+            box-shadow: var(--shadow-glow-blue);
+        }
+
+        /* 动画 */
+        .nav-card { animation: fadeInUp var(--duration-slow) var(--ease-out) both; width: 280px; }
+        .card-1 { animation-delay: 0ms; }
+        .card-2 { animation-delay: 60ms; }
+        .card-3 { animation-delay: 120ms; }
+        .card-4 { animation-delay: 180ms; }
+        .card-5 { animation-delay: 240ms; }
+        .card-5 { --card-glow: rgba(52,211,153,0.06); }
+        .card-5::before { background: #2dd4bf; }
+        .card-6 { animation-delay: 300ms; }
+        .card-6 { --card-glow: rgba(251,191,36,0.06); }
+        .card-6::before { background: #fbbf24; }
+
+        /* 移动端适配 */
+@media (max-width: 768px) {
+    .portal-title { font-size: 1.3rem; margin-bottom: 1.5rem; }
+    .portal-title span { font-size: 0.75rem; }
+    .card-container { grid-template-columns: 1fr; gap: 10px; width: 100%; max-width: 420px; }
+    /* 卡片改为横向布局：左图标 + 右文字 */
+    .nav-card {
+        display: flex; align-items: center; gap: 14px;
+        padding: 16px; text-align: left;
+    }
+    .card-icon { font-size: 2rem; margin-bottom: 0; flex-shrink: 0; }
+    .card-title { font-size: 0.95rem; margin-bottom: 4px; }
+    .card-desc { font-size: 0.75rem; line-height: 1.5; }
+    .token-status-bar { top: 8px; right: 10px; }
+    .cookie-modal-box { padding: 20px; max-width: 90vw; }
+}
+@media (max-width: 480px) {
+    .portal-title { font-size: 1.15rem; margin-bottom: 1.2rem; }
+    .card-container { gap: 8px; max-width: 100%; padding: 0 8px; }
+    .nav-card { padding: 14px 12px; gap: 10px; border-radius: var(--radius-sm); }
+    .card-icon { font-size: 1.6rem; }
+    .card-title { font-size: 0.88rem; }
+    .card-desc { font-size: 0.7rem; }
+    .token-status-bar {
+        position: relative; top: auto; right: auto;
+        justify-content: center; padding: 8px 0; margin-bottom: 8px;
+    }
+    .cookie-modal-box { padding: 16px; border-radius: var(--radius-sm); }
+    .cookie-modal-box h4 { font-size: 0.95rem; }
+    .cookie-modal-box textarea { font-size: 16px; }
+}
+    </style>
+</head>
+<body>
+    <!-- Token 状态栏 -->
+    <div class="token-status-bar">
+        <span id="tokenBadge" class="token-badge loading">检测中...</span>
+        <button id="tokenActionBtn" class="token-action-btn" onclick="openPortalCookieModal()">更新 Cookie</button>
+    </div>
+
+    <div class="portal-title">
+        📦 WMS 综合监控管理系统
+        <span>仓库作业全链路监控平台</span>
+    </div>
+    <div class="card-container">
+        <a href="/dashboard" class="nav-card card-1" target="_blank">
+            <span class="card-icon">📊</span>
+            <div class="card-text"><div class="card-title">拣货产出监控大屏</div>
+            <div class="card-desc">实时监控员工拣货效率、各仓履约进度及员工停滞预警</div></div>
+        </a>
+        <a href="/blame_query" class="nav-card card-2" target="_blank">
+            <span class="card-icon">🔎</span>
+            <div class="card-text"><div class="card-title">错标查询与分析</div>
+            <div class="card-desc">查询订单对应包裹的拣货任务明细及责任拣货人</div></div>
+        </a>
+        <a href="/attendance" class="nav-card card-5" target="_blank">
+            <span class="card-icon">📋</span>
+            <div class="card-text"><div class="card-title">班组出勤统计</div>
+            <div class="card-desc">按整点时段统计各班组出勤人数，热力图可视化分析人力分布</div></div>
+        </a>
+        <!-- 第二行：3张卡片 -->
+        <a href="/abnormal" class="nav-card card-3">
+            <span class="card-icon">⚠️</span>
+            <div class="card-text"><div class="card-title">调拨仓取消包裹监控</div>
+            <div class="card-desc">定时巡检调拨单被拦截取消包裹，自动标记并记录处理情况</div></div>
+        </a>
+        <a href="/cancel_detail" class="nav-card card-4">
+            <span class="card-icon">📥</span>
+            <div class="card-text"><div class="card-title">清溪仓非翻包取消件明细</div>
+            <div class="card-desc">抓取今日全部取消包裹，自动追溯确认差异、处理人及时间</div></div>
+        </a>
+    </div>
+
+    <!-- Cookie 输入弹窗 -->
+    <div class="cookie-modal-overlay" id="portalCookieModal">
+        <div class="cookie-modal-box">
+            <h4>⚠️ 鉴权已失效</h4>
+            <p>Token 自动刷新失败。请前往 klwms 系统，按 F12 复制网络请求中的完整 Cookie 字符串并粘贴在下方：</p>
+            <textarea id="portalCookieInput" rows="4" placeholder="在此粘贴完整的 Cookie 字符串..."></textarea>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closePortalCookieModal()">稍后再说</button>
+                <button class="btn-confirm" onclick="submitPortalCookie()" id="portalCookieSubmitBtn">确认更新</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const SILENT_REFRESH_COOLDOWN = 60000;
+        const CHECK_INTERVAL = 15000;
+        let lastSilentRefreshTime = 0;
+        let cookieModalOpen = false;
+
+        const badge = document.getElementById('tokenBadge');
+        const actionBtn = document.getElementById('tokenActionBtn');
+
+        function setBadgeOk(method, time) {
+            const mode = method === 'cookie' ? 'Cookie' : 'Token';
+            badge.textContent = mode + ' 有效' + (time ? ' ' + time : '');
+            badge.className = 'token-badge ok';
+            actionBtn.textContent = '更新 Cookie';
+        }
+
+        function setBadgeLoading() {
+            badge.textContent = '刷新中...';
+            badge.className = 'token-badge loading';
+        }
+
+        function setBadgeError(msg) {
+            badge.textContent = '鉴权 ' + msg;
+            badge.className = 'token-badge error';
+            actionBtn.textContent = '输入 Cookie';
+        }
+
+        window.openPortalCookieModal = function() {
+            document.getElementById('portalCookieModal').classList.add('show');
+            cookieModalOpen = true;
+        };
+
+        window.closePortalCookieModal = function() {
+            document.getElementById('portalCookieModal').classList.remove('show');
+            cookieModalOpen = false;
+        };
+
+        window.submitPortalCookie = async function() {
+            const input = document.getElementById('portalCookieInput');
+            const val = input.value.trim();
+            if (!val) { alert('Cookie 不能为空！'); return; }
+
+            const btn = document.getElementById('portalCookieSubmitBtn');
+            btn.textContent = '提交中...';
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/update_cookie', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cookie: val })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    closePortalCookieModal();
+                    input.value = '';
+                    await checkStatus();
+                } else {
+                    alert('更新失败：' + data.msg);
+                }
+            } catch(e) {
+                alert('网络异常，请重试');
+            } finally {
+                btn.textContent = '确认更新';
+                btn.disabled = false;
+            }
+        };
+
+        async function checkStatus() {
+            try {
+                const res = await fetch('/api/cookie_status');
+                const data = await res.json();
+
+                if (data.ok) {
+                    const t = data.last_refresh ? data.last_refresh.slice(11, 16) : '';
+                    setBadgeOk(data.method, t);
+                    return;
+                }
+
+                const now = Date.now();
+                if (now - lastSilentRefreshTime > SILENT_REFRESH_COOLDOWN) {
+                    lastSilentRefreshTime = now;
+                    setBadgeLoading();
+                    try {
+                        const refreshRes = await fetch('/api/refresh_token', { method: 'POST' });
+                        const refreshData = await refreshRes.json();
+                        if (refreshData.ok) {
+                            setBadgeOk('token', '');
+                            badge.textContent = 'Token 已续期';
+                            return;
+                        }
+                    } catch(e) {}
+                }
+
+                const errMsg = data.last_error ? '已失效' : '未配置';
+                setBadgeError(errMsg);
+                if (!cookieModalOpen) openPortalCookieModal();
+            } catch(e) {}
+        }
+
+        setTimeout(checkStatus, 1000);
+        setInterval(checkStatus, CHECK_INTERVAL);
+    })();
+    </script>
+</body>
+</html>

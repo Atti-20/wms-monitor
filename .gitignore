@@ -1,0 +1,45 @@
+# === Databases ===
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# === Python cache ===
+__pycache__/
+*.pyc
+*.pyo
+
+# === IDE ===
+.idea/
+.vscode/
+
+# === Logs ===
+logs/
+*.log
+
+# === Secrets / Cookies / Tokens ===
+*.pkl
+*.cookie
+*_cookie.txt
+.token_cache.json
+.user_cookie.json
+
+# === Temp / debug files (root-level only) ===
+/_*.json
+/_*.txt
+/_*.xml
+/_*.py
+/_*.ps1
+*.zip
+
+# === Screenshots / images (temp) ===
+*.png
+
+# === Data exports ===
+*.csv
+*.xlsx
+
+# === OS files ===
+.DS_Store
+Thumbs.db

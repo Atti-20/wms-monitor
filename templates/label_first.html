@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+/* 统一滚动条样式 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+@page { size: 70mm 50mm; margin: 0; }
+body {
+    width: 70mm;
+    height: 50mm;
+    font-family: "SimHei", "Heiti SC", "Microsoft YaHei", sans-serif;
+    background: white;
+    color: black;
+    overflow: hidden;
+    position: relative;
+}
+.label-container {
+    width: 70mm;
+    height: 50mm;
+    padding: 2mm 3mm;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+.info-section {
+    flex: 0 0 auto;
+}
+.info-line {
+    font-size: 3.5mm;
+    line-height: 1.45;
+    font-weight: 400;
+    white-space: nowrap;
+}
+.barcode-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 1.5mm;
+}
+.barcode-section svg {
+    width: 64mm;
+    flex: 1;
+    min-height: 12mm;
+}
+.barcode-text {
+    font-size: 2.8mm;
+    margin-top: 0.8mm;
+    letter-spacing: 0.2mm;
+    text-align: center;
+    flex-shrink: 0;
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+</head>
+<body>
+<div class="label-container">
+    <div class="info-section">
+        <div class="info-line">调入仓：{{allotInWarehouseName}}</div>
+        <div class="info-line">履约波次：{{fulfillmentWaveName}}</div>
+        <div class="info-line">逻辑区：{{logicAreaName}}</div>
+        <div class="info-line">件数/包裹数：{{skuQty}}/{{parcelQty}}</div>
+        <div class="info-line">站区：{{stationAreaNos}}</div>
+    </div>
+    <div class="barcode-section">
+        <svg id="barcode"></svg>
+        <div class="barcode-text">{{zonePickBillNo}}</div>
+    </div>
+</div>
+<script>
+    const billNo = '{{zonePickBillNo}}';
+    if (billNo && billNo !== '{{' + 'zonePickBillNo}}') {
+        JsBarcode("#barcode", billNo, {
+            format: "CODE128",
+            width: 1.8,
+            height: 80,
+            displayValue: false,
+            margin: 0,
+        });
+    }
+</script>
+</body>
+</html>

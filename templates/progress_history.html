@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>近7天生产进度对比</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f141c;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 20px;
+}
+.header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+}
+.header h1 { font-size: 1.3rem; font-weight: 600; }
+.header .meta { font-size: 0.8rem; color: #64748b; }
+.back-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid #334155;
+    color: #94a3b8; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 0.8rem; transition: all 0.2s; text-decoration: none;
+}
+.back-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+.card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+.card h2 { font-size: 1rem; margin-bottom: 12px; color: #94a3b8; font-weight: 500; }
+#mainChart { width: 100%; height: 400px; }
+#waveChart { width: 100%; height: 320px; }
+
+/* 波次进度+文字说明 合并卡片：左文字右图表 */
+.wave-combo { display: flex; gap: 24px; align-items: stretch; }
+.wave-combo .wave-combo-text { flex: 1; min-width: 0; max-height: 380px; overflow-y: auto; padding-right: 8px; }
+.wave-combo .wave-combo-chart { flex: 1.2; min-width: 0; }
+.wave-combo .wave-combo-chart #waveChart { height: 380px; }
+
+/* 文字说明报告 */
+.report-block {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.95rem; line-height: 2; color: #cbd5e1;
+}
+.report-date-line { font-weight: 600; color: #e2e8f0; margin-bottom: 6px; }
+.report-wave-title { font-weight: 700; }
+.report-empty { color: #64748b; font-size: 0.9rem; padding: 4px 0; }
+
+@media (max-width: 768px) {
+    .report-block { font-size: 0.82rem; line-height: 1.85; }
+    .wave-combo { flex-direction: column; }
+    .wave-combo .wave-combo-text { max-height: 260px; }
+    .wave-combo .wave-combo-chart #waveChart { height: 240px; }
+}
+
+.summary-row {
+    display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.summary-card {
+    flex: 1; min-width: 130px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 12px 14px;
+    text-align: center;
+}
+.summary-card .label { font-size: 0.72rem; color: #64748b; margin-bottom: 4px; }
+.summary-card .value { font-size: 1.3rem; font-weight: 700; }
+.summary-card .sub { font-size: 0.68rem; margin-top: 3px; color: #64748b; }
+.up { color: #00e676; }
+.down { color: #ff5252; }
+
+/* 分人表格 */
+.worker-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.worker-table th {
+    text-align: left; padding: 8px 10px;
+    background: rgb(23, 27, 35);
+    color: #64748b; font-weight: 500;
+    border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0;
+}
+.worker-table td {
+    padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.worker-table tr:hover td { background: rgba(255,255,255,0.03); }
+.table-wrap { max-height: 500px; overflow-y: auto; border-radius: 8px; }
+.badge-up { background: rgba(0,230,118,0.12); color: #00e676; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
+.badge-down { background: rgba(255,82,82,0.12); color: #ff5252; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
+.badge-new { background: rgba(255,152,0,0.12); color: #ff9800; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
+.badge-temp { background: rgba(156,39,176,0.12); color: #ce93d8; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
+
+/* 全局滚动条样式（深色主题） */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+html { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+
+/* ===== 移动端适配 ===== */
+@media (max-width: 768px) {
+    body { padding: 12px; }
+    .header h1 { font-size: 1.05rem; }
+    .header .meta { font-size: 0.68rem; }
+    .back-btn { font-size: 0.7rem; padding: 4px 10px; }
+    /* 指标卡片：3列紧凑网格 */
+    .summary-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .summary-card { min-width: 0; padding: 8px 6px; border-radius: 8px; }
+    .summary-card .label { font-size: 0.58rem; }
+    .summary-card .value { font-size: 1rem; }
+    .summary-card .sub { font-size: 0.56rem; }
+    /* 图表区域 */
+    .card { padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+    .card h2 { font-size: 0.85rem; margin-bottom: 8px; }
+    #mainChart { height: 300px; }
+    /* 表格紧凑 */
+    .worker-table { font-size: 0.68rem; }
+    .worker-table th { padding: 5px 4px; font-size: 0.62rem; }
+    .worker-table td { padding: 5px 4px; }
+    .badge-up, .badge-down, .badge-new, .badge-temp { font-size: 0.6rem; padding: 1px 5px; }
+    .table-wrap { max-height: 400px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <div>
+        <h1>生产进度监控</h1>
+        <div class="meta" id="headerMeta">加载中...</div>
+    </div>
+    <a class="back-btn" href="/dashboard">← 返回监控</a>
+</div>
+
+<div class="summary-row" id="summaryRow"></div>
+
+<div class="card">
+    <h2>实时拣货进度</h2>
+    <div id="mainChart"></div>
+</div>
+
+<div class="card">
+    <h2>各波次拣货进度（凌晨达 / 上午达 / 下午达）</h2>
+    <div class="wave-combo">
+        <div class="wave-combo-text">
+            <div class="report-block" id="hourlyReport"><div class="report-empty">加载中...</div></div>
+        </div>
+        <div class="wave-combo-chart">
+            <div id="waveChart"></div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>拣货人员产出对比</h2>
+    <div class="table-wrap">
+        <table class="worker-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>姓名</th>
+                    <th>班组</th>
+                    <th>今日件数</th>
+                    <th>近7天日均</th>
+                    <th>对比</th>
+                </tr>
+            </thead>
+            <tbody id="workerTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+const mainChart = echarts.init(document.getElementById('mainChart'), 'dark');
+const waveChart = echarts.init(document.getElementById('waveChart'), 'dark');
+const waveColors = { '凌晨达': '#ffd600', '上午达': '#90caf9', '下午达': '#00e676' };
+
+async function loadData() {
+    const res = await fetch('/api/progress_history');
+    const data = await res.json();
+
+    document.getElementById('headerMeta').textContent =
+        `日期: ${data.logical_date}　数据更新时间: ${data.current_time}`;
+
+    // === Summary Cards ===
+    const workSlots = data.work_slots || [];
+    const todayVals = workSlots.map(s => data.today_curve[s] || 0).filter(v => v > 0);
+    const todayMax = todayVals.length > 0 ? Math.max(...todayVals) : 0;
+    const avgVals = workSlots.map(s => data.avg_curve[s] || 0).filter(v => v > 0);
+    const avgMax = avgVals.length > 0 ? Math.max(...avgVals) : 0;
+
+    // 找到当前时间对应的均值和昨日值
+    const todayAtNow = todayMax;
+    let avgAtNow = 0;
+    let yesterdayAtNow = data.yesterday_at_now || 0;
+    for (let i = workSlots.length - 1; i >= 0; i--) {
+        if (data.today_curve[workSlots[i]]) {
+            avgAtNow = data.avg_curve[workSlots[i]] || 0;
+            break;
+        }
+    }
+    if (avgAtNow === 0) avgAtNow = avgMax;
+
+    const diff = avgAtNow > 0 ? ((todayAtNow - avgAtNow) / avgAtNow * 100).toFixed(1) : null;
+    const diffClass = diff >= 0 ? 'up' : 'down';
+    const diffArrow = diff >= 0 ? '↑' : '↓';
+
+    // 昨日对比
+    const diffYesterday = yesterdayAtNow > 0 ? ((todayAtNow - yesterdayAtNow) / yesterdayAtNow * 100).toFixed(1) : null;
+    const diffYClass = diffYesterday >= 0 ? 'up' : 'down';
+    const diffYArrow = diffYesterday >= 0 ? '↑' : '↓';
+
+    const eff = data.efficiency_stats || {};
+
+    // 预测目标
+    const forecast = data.forecast;
+    const forecastQty = forecast ? forecast.target_qty : null;
+    const progressPct = (forecastQty && todayAtNow > 0) ? (todayAtNow / forecastQty * 100).toFixed(1) : null;
+
+    document.getElementById('summaryRow').innerHTML = `
+        <div class="summary-card">
+            <div class="label">今日此刻已拣</div>
+            <div class="value">${todayAtNow.toLocaleString()}</div>
+            <div class="sub">件</div>
+        </div>
+        ${forecastQty ? `<div class="summary-card" style="border-color:rgba(233,30,99,0.3)">
+            <div class="label">预测目标</div>
+            <div class="value" style="color:#e91e63">${forecastQty.toLocaleString()}</div>
+            <div class="sub">完成 ${progressPct}%</div>
+        </div>` : ''}
+        <div class="summary-card">
+            <div class="label">昨日同时段</div>
+            <div class="value">${yesterdayAtNow ? yesterdayAtNow.toLocaleString() : '-'}</div>
+            <div class="sub">件</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">vs 昨日</div>
+            <div class="value ${diffYClass}">${diffYesterday != null ? diffYArrow + ' ' + Math.abs(diffYesterday) + '%' : '-'}</div>
+            <div class="sub ${diffYClass}">${diffYesterday != null ? (diffYesterday >= 0 ? '快于昨日' : '慢于昨日') : '无数据'}</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">近7天同时段均值</div>
+            <div class="value">${avgAtNow.toLocaleString()}</div>
+            <div class="sub">件</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">vs 7天均值</div>
+            <div class="value ${diffClass}">${diff != null ? diffArrow + ' ' + Math.abs(diff) + '%' : '-'}</div>
+            <div class="sub ${diffClass}">${diff >= 0 ? '快于历史' : '慢于历史'}</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">总体平均效率</div>
+            <div class="value">${eff.overall_avg || '-'}</div>
+            <div class="sub">件/时 (${eff.overall_count || 0}人)</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">新员工平均效率</div>
+            <div class="value" style="color:#ff9800">${eff.new_staff_avg || '-'}</div>
+            <div class="sub">件/时 (${eff.new_staff_count || 0}人)</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">临时工平均效率</div>
+            <div class="value" style="color:#ce93d8">${eff.temp_worker_avg || '-'}</div>
+            <div class="sub">件/时 (${eff.temp_worker_count || 0}人)</div>
+        </div>
+    `;
+
+    // === Main Chart ===
+    // 使用后端返回的工作时段作为X轴
+    const allSlots = workSlots;
+    // 生成显示标签：18:00~23:50 正常, 00:00~02:50 显示为 "次日" 提示跨日
+    const xLabels = allSlots.map(s => {
+        const h = parseInt(s.slice(0,2));
+        return h < 3 ? `次日${s}` : s;
+    });
+
+    const todaySeries = allSlots.map(s => data.today_curve[s] ?? null);
+    const avgSeries = allSlots.map(s => data.avg_curve[s] ?? null);
+    // 昨日曲线（高亮蓝色）
+    const yesterdayCurve = data.yesterday_curve || {};
+    const yesterdaySeries = allSlots.map(s => yesterdayCurve[s] ?? null);
+    const yesterdayDate = data.yesterday_date || '';
+    const yesterdayLabel = '昨日(' + yesterdayDate.slice(5) + ')';
+
+    // 历史各天独立曲线（浅色辅助，排除昨天）
+    const histSeriesList = data.hist_dates
+        .filter(d => d !== data.yesterday_date)
+        .map(d => ({
+            name: d.slice(5),  // MM-DD
+            type: 'line',
+            data: allSlots.map(s => (data.hist_curves[d] || {})[s] ?? null),
+            smooth: true,
+            lineStyle: { width: 1, opacity: 0.25 },
+            symbol: 'none',
+            z: 1,
+        }));
+
+    mainChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(15,20,28,0.95)',
+            borderColor: '#334155',
+            textStyle: { color: '#fff', fontSize: 12 },
+            formatter: function(params) {
+                let slot = params[0].axisValue;
+                let lines = [`<b>${slot}</b>`];
+                params.forEach(p => {
+                    if (p.value != null) {
+                        lines.push(`${p.marker} ${p.seriesName}: <b>${p.value.toLocaleString()}</b> 件`);
+                    }
+                });
+                return lines.join('<br>');
+            }
+        },
+        legend: {
+            data: ['今日实时', yesterdayLabel, '7天均值', ...data.hist_dates.filter(d => d !== data.yesterday_date).map(d => d.slice(5))],
+            textStyle: { color: '#64748b', fontSize: window.innerWidth <= 768 ? 9 : 11 },
+            top: 0,
+            itemWidth: window.innerWidth <= 768 ? 12 : 25,
+            itemGap: window.innerWidth <= 768 ? 6 : 10,
+            selected: {
+                [yesterdayLabel]: true,
+                ...Object.fromEntries(data.hist_dates.filter(d => d !== data.yesterday_date).map(d => [d.slice(5), false])),
+            },
+        },
+        grid: { left: window.innerWidth <= 768 ? 40 : 50, right: 12, top: window.innerWidth <= 768 ? 50 : 40, bottom: 35 },
+        xAxis: {
+            type: 'category',
+            data: xLabels,
+            axisLabel: {
+                color: '#64748b', fontSize: 10,
+                interval: (idx) => allSlots[idx] && allSlots[idx].endsWith(':00'),
+                formatter: v => v.replace('次日','')
+            },
+            splitLine: { show: false },
+        },
+        yAxis: {
+            type: 'value',
+            max: forecastQty ? function(value) { return Math.max(value.max, forecastQty * 1.05); } : undefined,
+            axisLabel: { color: '#64748b', fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(0) + 'k' : v },
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        },
+        series: [
+            {
+                name: '今日实时',
+                type: 'line',
+                data: todaySeries,
+                smooth: true,
+                lineStyle: { width: 3, color: '#00e676' },
+                areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: 'rgba(0,230,118,0.2)' },
+                    { offset: 1, color: 'rgba(0,230,118,0)' },
+                ]) },
+                symbol: 'none',
+                z: 10,
+                markLine: forecastQty ? {
+                    silent: true,
+                    symbol: 'none',
+                    lineStyle: { color: '#e91e63', width: 1.5, type: 'dashed' },
+                    label: {
+                        formatter: `预测目标: ${forecastQty.toLocaleString()} 件`,
+                        color: '#e91e63', fontSize: 11, position: 'insideEndTop',
+                    },
+                    data: [{ yAxis: forecastQty }],
+                } : undefined,
+            },
+            {
+                name: yesterdayLabel,
+                type: 'line',
+                data: yesterdaySeries,
+                smooth: true,
+                lineStyle: { width: 2, color: '#42a5f5' },
+                areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: 'rgba(66,165,245,0.1)' },
+                    { offset: 1, color: 'rgba(66,165,245,0)' },
+                ]) },
+                symbol: 'none',
+                z: 8,
+            },
+            {
+                name: '7天均值',
+                type: 'line',
+                data: avgSeries,
+                smooth: true,
+                lineStyle: { width: 2, type: 'dashed', color: '#ff9800' },
+                symbol: 'none',
+                z: 5,
+            },
+            ...histSeriesList,
+        ],
+    });
+
+    // === Wave Chart（凌晨达/上午达/下午达）===
+    const waveCurves = data.wave_curves || {};
+    const waveNames = Object.keys(waveCurves);
+    const waveSeries = waveNames.map(wn => ({
+        name: wn,
+        type: 'line',
+        data: allSlots.map(s => waveCurves[wn][s] ?? null),
+        smooth: true,
+        lineStyle: { width: 2.5, color: waveColors[wn] || '#94a3b8' },
+        itemStyle: { color: waveColors[wn] || '#94a3b8' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: (waveColors[wn] || '#94a3b8') + '33' },
+            { offset: 1, color: (waveColors[wn] || '#94a3b8') + '00' },
+        ]) },
+        symbol: 'none',
+        z: 10,
+    }));
+
+    waveChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(15,20,28,0.95)',
+            borderColor: '#334155',
+            textStyle: { color: '#fff', fontSize: 12 },
+            formatter: function(params) {
+                let slot = params[0].axisValue;
+                let lines = [`<b>${slot}</b>`];
+                params.forEach(p => {
+                    if (p.value != null) {
+                        lines.push(`${p.marker} ${p.seriesName}: <b>${p.value.toLocaleString()}</b> 件`);
+                    }
+                });
+                return lines.join('<br>');
+            }
+        },
+        legend: {
+            data: waveNames,
+            textStyle: { color: '#64748b', fontSize: window.innerWidth <= 768 ? 9 : 11 },
+            top: 0,
+        },
+        grid: { left: window.innerWidth <= 768 ? 40 : 50, right: 12, top: 40, bottom: 35 },
+        xAxis: {
+            type: 'category',
+            data: xLabels,
+            axisLabel: {
+                color: '#64748b', fontSize: 10,
+                interval: (idx) => allSlots[idx] && allSlots[idx].endsWith(':00'),
+                formatter: v => v.replace('次日','')
+            },
+            splitLine: { show: false },
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: { color: '#64748b', fontSize: 10, formatter: v => v >= 1000 ? (v/1000).toFixed(0) + 'k' : v },
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        },
+        series: waveSeries,
+    });
+
+    // === 文字说明报告（按整点更新）===
+    renderHourlyReport(data);
+
+    // === Worker Table ===
+    const workers = data.workers_compare || [];
+    const histUnit = data.hist_unit || '件';
+    // 更新表头
+    if (histUnit === '单') {
+        document.querySelector('.worker-table thead').innerHTML = `<tr>
+            <th>#</th><th>姓名</th><th>班组</th><th>今日件数</th><th>今日单量</th>
+            <th>7天均件数</th><th>7天均单量</th><th>对比</th>
+        </tr>`;
+    } else {
+        document.querySelector('.worker-table thead').innerHTML = `<tr>
+            <th>#</th><th>姓名</th><th>班组</th><th>今日件数</th>
+            <th>7天均件数</th><th>对比</th>
+        </tr>`;
+    }
+    const tbody = document.getElementById('workerTableBody');
+    tbody.innerHTML = workers.map((w, i) => {
+        let badge = '';
+        if (w.diff_pct != null) {
+            if (w.diff_pct >= 0) badge = `<span class="badge-up">↑ ${w.diff_pct}%</span>`;
+            else badge = `<span class="badge-down">↓ ${Math.abs(w.diff_pct)}%</span>`;
+        } else if (w.hist_avg_final == null) {
+            badge = `<span class="badge-new">新</span>`;
+        } else {
+            badge = `<span style="opacity:0.4">-</span>`;
+        }
+        // 班组显示：临时工写"临时工"，否则显示班组简称
+        let teamDisplay = '';
+        if (w.is_temp_worker) {
+            teamDisplay = '<span class="badge-temp">临时工</span>';
+        } else {
+            teamDisplay = shortTeam(w.team_name);
+        }
+        // 姓名后缀标识
+        let nameSuffix = '';
+        if (w.is_new_staff) nameSuffix = ' <span style="color:#ff9800;font-size:0.65rem">[新]</span>';
+        const billsCol = histUnit === '单' ? `<td>${w.today_bills != null ? w.today_bills : '-'}</td>` : '';
+        const histBillsCol = histUnit === '单' ? `<td>${w.hist_avg_final != null ? w.hist_avg_final + ' 单' : '<span style="opacity:0.4">-</span>'}</td>` : '';
+        const histCountVal = w.hist_avg_count != null ? w.hist_avg_count : '<span style="opacity:0.4">-</span>';
+        return `<tr>
+            <td>${i + 1}</td>
+            <td>${w.name}${nameSuffix}</td>
+            <td>${teamDisplay}</td>
+            <td style="font-weight:600">${w.today_count}</td>
+            ${billsCol}
+            <td>${histCountVal}</td>
+            ${histBillsCol}
+            <td>${badge}</td>
+        </tr>`;
+    }).join('');
+}
+
+// 波次顺序：凌晨达 → 上午达 → 下午达（与用户模板一致）
+const WAVE_ORDER = ['凌晨达', '上午达', '下午达'];
+
+function renderHourlyReport(data) {
+    const el = document.getElementById('hourlyReport');
+    const hourlyReport = data.hourly_report || {};
+    const logicalDate = data.logical_date || '';
+
+    // 日期标题："调拨履约日7月4号"（履约日 = 逻辑日期 + 1天）
+    let dateLabel = '';
+    const dm = logicalDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (dm) {
+        const fulfillDate = new Date(parseInt(dm[1]), parseInt(dm[2]) - 1, parseInt(dm[3]));
+        fulfillDate.setDate(fulfillDate.getDate() + 1);
+        dateLabel = `调拨履约日${fulfillDate.getMonth() + 1}月${fulfillDate.getDate()}号`;
+    }
+
+    const waveNames = WAVE_ORDER.filter(wn => hourlyReport[wn]);
+    // 补充模板未覆盖但接口返回了的其他波次名（兜底）
+    Object.keys(hourlyReport).forEach(wn => { if (!waveNames.includes(wn)) waveNames.push(wn); });
+
+    if (waveNames.length === 0) {
+        el.innerHTML = `${dateLabel ? `<div class="report-date-line">${dateLabel}</div>` : ''}<div class="report-empty">暂无拣货数据</div>`;
+        return;
+    }
+
+    // 中文数字序号：一、二、三...
+    const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+
+    const blocksHtml = waveNames.map((wn, wIdx) => {
+        const rep = hourlyReport[wn];
+        const color = waveColors[wn] || '#94a3b8';
+        const pctText = rep.progress_pct != null ? rep.progress_pct + '%' : '-';
+        const cnIdx = CN_NUM[wIdx] || (wIdx + 1);
+        const titleLine = `<div class="report-wave-title" style="color:${color}">${cnIdx}、${wn}进度${pctText}</div>`;
+        const hourLines = rep.hours.map((h, hIdx) => {
+            const hourPctText = h.progress_pct != null ? `，进度${h.progress_pct}%` : '';
+            return `<div>${hIdx + 1}、${wn}${h.hour}:00拣货数据：累计${h.cumulative.toLocaleString()}件，单小时拣货${h.delta.toLocaleString()}件${hourPctText}</div>`;
+        }).join('');
+        // 波次之间空一行
+        const spacer = wIdx < waveNames.length - 1 ? '<div>&nbsp;</div>' : '';
+        return titleLine + hourLines + spacer;
+    }).join('');
+
+    el.innerHTML = (dateLabel ? `<div class="report-date-line">${dateLabel}</div>` : '') + blocksHtml;
+}
+
+function shortTeam(name) {
+    if (!name) return '-';
+    let s = name;
+    if (s.includes('(B套)')) s = s.replace('(B套)', '') + 'B';
+    if (s.startsWith('自营标品')) s = s.slice(4);
+    else if (s.startsWith('输送线')) return s.slice(3);
+    if (s.endsWith('组')) s = s.slice(0, -1);
+    return s || name;
+}
+
+window.addEventListener('resize', () => { mainChart.resize(); waveChart.resize(); });
+loadData();
+// 每 5 min自动刷新
+setInterval(loadData, 300000);
+
+// 额外：整点时刻精确触发一次刷新，保证文字说明报告每整点更新
+function scheduleHourlyRefresh() {
+    const now = new Date();
+    const msToNextHour = (60 - now.getMinutes()) * 60000 - now.getSeconds() * 1000 - now.getMilliseconds() + 2000; // 整点后2秒触发，避开边界
+    setTimeout(() => {
+        loadData();
+        scheduleHourlyRefresh();
+    }, msToNextHour);
+}
+scheduleHourlyRefresh();
+</script>
+</body>
+</html>

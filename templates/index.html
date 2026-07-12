@@ -1,0 +1,2515 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>拣货产出监控大屏</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/base.css" rel="stylesheet">
+    <style>
+        :root {
+            --gold: #ffd700;
+            --silver: #c0c0c0;
+            --bronze: #cd7f32;
+        }
+
+        body {
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        html, body { height: 100%; }
+
+        .header-clock {
+            background: var(--surface-1);
+            text-align: center;
+            padding: 12px 0;
+            font-size: 2rem;
+            font-weight: 800;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        /* ===== 异常滚动播报栏 ===== */
+        .marquee-bar {
+            background: linear-gradient(90deg, rgba(255,82,82,0.08), rgba(255,152,0,0.08), rgba(255,82,82,0.08));
+            border-bottom: 1px solid rgba(255,152,0,0.15);
+            padding: 4px 0;
+            overflow: hidden;
+            white-space: nowrap;
+            flex-shrink: 0;
+            min-height: 24px;
+        }
+        .marquee-inner {
+            display: inline-block;
+            animation: marquee-scroll 30s linear infinite;
+            font-size: 0.75rem;
+            color: var(--accent-orange);
+            padding-left: 100%;
+        }
+        .marquee-inner:hover { animation-play-state: paused; }
+        .marquee-item { margin-right: 60px; }
+        .marquee-item .marquee-danger { color: var(--danger); font-weight: bold; }
+        .marquee-item .marquee-warn { color: var(--accent-orange); font-weight: bold; }
+        .marquee-item .marquee-info { color: var(--accent-blue); }
+        @keyframes marquee-scroll {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+        .marquee-bar.empty { display: none; }
+
+        .main-content {
+            padding: 12px;
+            flex-grow: 1;
+            display: flex;
+            gap: 0;
+            min-height: 0;
+            box-sizing: border-box;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .panel-glass {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            transition: border-color var(--duration-normal) var(--ease-out);
+        }
+        .panel-glass:hover {
+            border-color: var(--border-medium);
+        }
+        .stagnant-side-panel { margin-right: 0; }
+        .left-panel { margin: 0; }
+        .right-panel { margin-left: 0; }
+
+        /* 卡单预警独立面板 */
+        .stagnant-side-panel {
+            flex: 0 0 480px;
+            min-width: 180px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .stagnant-panel-title-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255,152,0,0.2);
+            flex-shrink: 0;
+        }
+        .stagnant-scroll-body {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 60px;
+        }
+
+        .left-panel { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+        .worker-container {
+            flex: 1 1 0;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+            gap: 6px;
+            padding: 3px;
+            align-content: start;
+        }
+
+        .worker-card {
+            background: var(--surface-3);
+            border-radius: var(--radius-sm);
+            padding: 7px 8px;
+            border-left: 3px solid var(--accent-green);
+            transition: transform var(--duration-normal) var(--ease-out), box-shadow var(--duration-normal) var(--ease-out);
+            min-width: 0;
+            position: relative;
+        }
+        .worker-card:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+        .worker-card.stagnant {
+            border-left-color: var(--danger);
+            background: rgba(255, 82, 82, 0.15);
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
+        }
+
+        /* 高产出勋章：金银铜 */
+        .worker-card.hero-gold {
+            border-left-color: var(--gold);
+            background: linear-gradient(135deg, rgba(255,215,0,0.08), var(--surface-3) 60%);
+            box-shadow: 0 0 12px rgba(255,215,0,0.15);
+        }
+        .worker-card.hero-silver {
+            border-left-color: var(--silver);
+            background: linear-gradient(135deg, rgba(192,192,192,0.06), var(--surface-3) 60%);
+            box-shadow: 0 0 8px rgba(192,192,192,0.1);
+        }
+        .worker-card.hero-bronze {
+            border-left-color: var(--bronze);
+            background: linear-gradient(135deg, rgba(205,127,50,0.06), var(--surface-3) 60%);
+            box-shadow: 0 0 8px rgba(205,127,50,0.1);
+        }
+        .hero-medal {
+            font-size: 1rem;
+            filter: drop-shadow(0 0 4px rgba(255,215,0,0.5));
+            margin-right: 2px;
+            vertical-align: middle;
+        }
+
+        /* 低效预警 */
+        .worker-card.low-eff {
+            border-left-color: #ffab00;
+            background: rgba(255,171,0,0.06);
+        }
+        .low-eff-tag {
+            display: inline-block;
+            font-size: 0.6rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(255,171,0,0.2);
+            color: #ffab00;
+            margin-left: 4px;
+        }
+        .off-duty-tag {
+            display: inline-block;
+            font-size: 0.58rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(100,116,139,0.25);
+            color: var(--text-secondary);
+            margin-left: 4px;
+        }
+        .worker-card.off-duty {
+            opacity: 0.55;
+            border-left-color: var(--text-dim);
+        }
+
+        /* 权限缺失标记 */
+        .no-perm-tag {
+            display: inline-block;
+            font-size: 0.58rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(239,68,68,0.2);
+            color: #ef4444;
+            margin-left: 4px;
+        }
+
+        /* 非拣货人员标记 */
+        .excluded-tag {
+            display: inline-block;
+            font-size: 0.58rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(100,116,139,0.25);
+            color: #78716c;
+            margin-left: 4px;
+        }
+        .worker-card.excluded {
+            opacity: 0.40;
+            border-left-color: #57534e;
+            background: #1a1a1a;
+        }
+        /* 卡片右下角标记按钮 */
+        .exclude-btn {
+            display: inline-block;
+            font-size: 0.6rem;
+            padding: 3px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            line-height: 1.2;
+            z-index: 5;
+        }
+        .exclude-btn:hover {
+            background: rgba(255,82,82,0.15);
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+        .exclude-btn.undo:hover {
+            background: rgba(0,230,118,0.15);
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        /* 确认弹窗 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: var(--surface-3);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            padding: 24px 28px;
+            min-width: 320px;
+            max-width: 400px;
+            text-align: center;
+        }
+        .modal-box h4 { margin: 0 0 12px 0; font-size: 1rem; }
+        .modal-box p { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 20px; }
+        .modal-btns { display: flex; gap: 12px; justify-content: center; }
+        .modal-btns button {
+            padding: 6px 20px;
+            border-radius: 6px;
+            border: none;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .modal-btn-cancel {
+            background: rgba(255,255,255,0.1);
+            color: var(--text-secondary);
+        }
+        .modal-btn-cancel:hover { background: rgba(255,255,255,0.2); }
+        .modal-btn-confirm {
+            background: var(--danger);
+            color: #fff;
+        }
+        .modal-btn-confirm:hover { opacity: 0.85; }
+        .modal-btn-confirm.undo {
+            background: var(--accent-green);
+        }
+
+        /* ===== 胜利动画 overlay ===== */
+        .victory-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 99999;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+        }
+        .victory-overlay.show {
+            display: block;
+            pointer-events: auto;
+            opacity: 1;
+        }
+        .victory-dim {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.65);
+        }
+        .victory-center {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 2;
+        }
+        .victory-icon {
+            font-size: 5rem;
+            animation: victory-bounce 1.2s ease infinite;
+            filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.6));
+        }
+        .victory-title {
+            font-size: 2.2rem;
+            font-weight: 900;
+            margin-top: 16px;
+            background: linear-gradient(135deg, #ffd700, #ffaa00, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: none;
+            animation: victory-glow 2s ease-in-out infinite;
+        }
+        .victory-subtitle {
+            font-size: 1rem;
+            color: rgba(255,255,255,0.7);
+            margin-top: 10px;
+            letter-spacing: 2px;
+        }
+        .victory-stats {
+            display: flex;
+            gap: 32px;
+            justify-content: center;
+            margin-top: 24px;
+        }
+        .victory-stat {
+            text-align: center;
+        }
+        .victory-stat-val {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #ffd700;
+        }
+        .victory-stat-label {
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.5);
+            margin-top: 2px;
+        }
+        .victory-close {
+            margin-top: 32px;
+            padding: 10px 36px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 215, 0, 0.4);
+            background: rgba(255, 215, 0, 0.1);
+            color: #ffd700;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .victory-close:hover {
+            background: rgba(255, 215, 0, 0.25);
+            border-color: #ffd700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        /* 彩花粒子 */
+        .victory-confetti {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .confetti-piece {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            opacity: 0;
+            animation: confetti-fall linear forwards;
+        }
+        @keyframes victory-bounce {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-12px) scale(1.08); }
+        }
+        @keyframes victory-glow {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.3); }
+        }
+        @keyframes confetti-fall {
+            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0.3; }
+        }
+
+        .worker-name { font-size: 0.85rem; font-weight: bold; }
+        .worker-tag { font-size: 0.62rem; color: var(--text-secondary); margin-bottom: 4px; }
+        .worker-sub-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.2);
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 0.68rem;
+            margin-bottom: 4px;
+            transition: all 0.3s;
+        }
+        .worker-sub-stats.locked:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .warehouse-detail-row {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 2px;
+        }
+        .warehouse-detail-row::-webkit-scrollbar { height: 2px; }
+        .warehouse-detail-row::-webkit-scrollbar-thumb { background: var(--surface-4); }
+
+        .left-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .left-header-left {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+        }
+        .left-header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .title-badge {
+            font-weight: bold;
+            font-size: 1rem;
+            border-left: 4px solid var(--accent-green);
+            padding-left: 10px;
+        }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(0,0,0,0.2);
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+        .filter-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+        #teamFilter {
+            width: auto;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            background-color: var(--surface-3);
+            border: 1px solid var(--border-medium);
+            color: #fff;
+            border-radius: 4px;
+        }
+        .btn-export {
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 4px 10px;
+            background: linear-gradient(135deg, var(--surface-3) 0%, var(--surface-4) 100%);
+            border: 1px solid var(--accent-green);
+            border-radius: 5px;
+            color: var(--accent-green);
+            transition: all 0.2s ease;
+        }
+        .btn-export:hover {
+            background: var(--accent-green);
+            color: var(--surface-3);
+            border-color: var(--accent-green);
+        }
+        .btn-perm-check {
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 4px 10px;
+            border: 1px solid var(--accent-orange);
+            background: transparent;
+            cursor: pointer;
+            color: var(--accent-orange);
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        .btn-perm-check:hover {
+            background: var(--accent-orange);
+            color: var(--surface-3);
+            border-color: var(--accent-orange);
+        }
+        .online-badge {
+            font-size: 0.7rem;
+            padding: 4px 10px;
+            border-radius: 5px;
+            background: rgba(0, 230, 118, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 230, 118, 0.3);
+        }
+        .update-time {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .right-panel { flex: 1 1 0; min-width: 260px; overflow-y: auto; overflow-x: hidden; }
+        .wave-summary-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .wave-card {
+            background: var(--surface-3);
+            padding: 10px;
+            border-radius: var(--radius-sm);
+            border-bottom: 3px solid transparent;
+            transition: transform var(--duration-normal) var(--ease-out), box-shadow var(--duration-normal) var(--ease-out);
+        }
+        .wave-card:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+        .wave-card.morning { border-bottom-color: var(--accent-orange); }
+        .wave-card.noon { border-bottom-color: var(--accent-blue); }
+        .wave-card.afternoon { border-bottom-color: var(--accent-green); }
+
+        .wave-label { font-size: 0.85rem; margin-bottom: 5px; }
+        .wave-data { font-size: 0.75rem; color: var(--text-main); }
+
+        /* ===== 核心指标：大数看板 ===== */
+        .total-stats-row {
+            display: flex;
+            justify-content: space-around;
+            background: rgba(255,255,255,0.03);
+            padding: 14px 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .total-item { text-align: center; }
+        .total-label { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; }
+        .total-val {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--accent-green);
+            text-shadow: 0 0 12px rgba(0,230,118,0.4);
+        }
+        .total-val.danger-glow {
+            color: var(--danger);
+            text-shadow: 0 0 12px rgba(255,82,82,0.5);
+        }
+        .total-val.blue-glow {
+            color: var(--accent-blue);
+            text-shadow: 0 0 12px rgba(0,198,255,0.4);
+        }
+
+        /* 全场进度条 */
+        .progress-container {
+            height: 8px;
+            flex-shrink: 0;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            margin-bottom: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+            transition: width 0.8s ease-in-out;
+            border-radius: 5px;
+            position: relative;
+        }
+        .progress-bar-inner::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0;
+            width: 30px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+            border-radius: 0 5px 5px 0;
+        }
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+        .progress-pct {
+            font-weight: bold;
+            color: var(--accent-green);
+            text-shadow: 0 0 6px rgba(0,230,118,0.3);
+        }
+
+        .echart-scroll-wrap { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+        #echartMain { width: 100%; min-height: 350px; }
+
+        /* ===== 拣货卡单预警区域 ===== */
+        .stagnant-panel-title {
+            font-weight: bold;
+            font-size: 1rem;
+            color: white;
+            border-left: 4px solid var(--accent-orange);
+            padding-left: 10px;
+        }
+        .stagnant-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: rgba(255, 152, 0, 0.2);
+            color: var(--accent-orange);
+        }
+        .stagnant-table {
+            width: 100%;
+            font-size: 0.72rem;
+            border-collapse: collapse;
+        }
+        .stagnant-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: var(--surface-2);
+            color: var(--text-secondary);
+            font-weight: normal;
+            padding: 5px 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            white-space: nowrap;
+        }
+        .stagnant-table td {
+            padding: 5px 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            white-space: nowrap;
+        }
+        .stagnant-table tr:last-child td { border-bottom: none; }
+        /* 斑马纹 */
+        .stagnant-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+        .stagnant-table tbody tr:hover td { background: rgba(255,255,255,0.05); }
+        .stagnant-mins {
+            color: var(--danger);
+            font-weight: bold;
+        }
+        /* 30分钟以上超时：加粗闪烁 */
+        .stagnant-mins-urgent {
+            color: var(--danger);
+            font-weight: 800;
+            font-size: 0.78rem;
+            animation: urgent-blink 1.2s infinite;
+        }
+        @keyframes urgent-blink {
+            0%   { opacity: 1; }
+            50%  { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+        /* 拣完未提交闪烁 */
+        .reason-urgent-blink {
+            animation: urgent-blink 1.5s infinite;
+        }
+        /* >8分钟停滞行高亮 */
+        .stagnant-table tbody tr.stagnant-row-warn td {
+            background: rgba(255,82,82,0.08);
+        }
+        .stagnant-table tbody tr.stagnant-row-warn:hover td {
+            background: rgba(255,82,82,0.14);
+        }
+
+        .stagnant-empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 20px 0;
+            font-size: 0.75rem;
+        }
+
+        /* ===== 拣货中任务详情区域 ===== */
+        .picking-progress-section {
+            border-top: 1px solid rgba(0,198,255,0.2);
+            padding-top: 10px;
+            margin-top: 0;
+            flex: 0 0 50%;
+            max-height: 50%;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .picking-progress-title-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            flex-shrink: 0;
+        }
+        .picking-progress-title {
+            font-weight: bold;
+            font-size: 1rem;
+            color: white;
+            padding-left: 10px;
+            border-left: 4px solid var(--accent-blue);
+        }
+        .picking-progress-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 8px;
+            background: rgba(0,198,255,0.12);
+            color: var(--accent-blue);
+        }
+        .picking-overview {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        .picking-overview-item {
+            flex: 1;
+            text-align: center;
+            padding: 6px 4px;
+            background: rgba(0,198,255,0.04);
+            border-radius: 6px;
+            border: 1px solid rgba(0,198,255,0.1);
+        }
+        .picking-overview-item .ov-label {
+            font-size: 0.62rem;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+        .picking-overview-item .ov-value {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: var(--text-main);
+        }
+        /* 履约波次信息 */
+        .picking-wave-info {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 6px;
+            flex-shrink: 0;
+        }
+        .wave-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.65rem;
+            padding: 2px 8px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .wave-name {
+            color: var(--accent-blue);
+            font-weight: bold;
+        }
+        .wave-detail {
+            color: var(--text-secondary);
+        }
+        /* 进度条容器 */
+        .picking-bars-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        .picking-bar-wrap {
+            flex: 1;
+            min-width: 0;
+        }
+        .picking-bar-label {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .picking-bar-outer {
+            height: 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+        }
+        .picking-bar-inner-seasoning {
+            height: 100%;
+            background: linear-gradient(90deg, #a855f7, #c084fc);
+            transition: width 0.6s ease;
+            border-radius: 4px;
+        }
+        .picking-bar-inner-feeding {
+            height: 100%;
+            background: linear-gradient(90deg, #00c6ff, #72efdd);
+            transition: width 0.6s ease;
+            border-radius: 4px;
+        }
+        /* 人员拣货进度列表 */
+        .picking-worker-list {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+        .picking-worker-row {
+            display: flex;
+            align-items: center;
+            padding: 5px 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            gap: 6px;
+        }
+        .picking-worker-row:last-child { border-bottom: none; }
+        .picking-worker-row:hover { background: rgba(255,255,255,0.03); }
+        .pw-name {
+            font-size: 0.72rem;
+            font-weight: bold;
+            color: var(--text-main);
+            width: 3.2em;
+            min-width: 3.2em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .pw-name.temp { color: #ff9800; }
+        .pw-wh {
+            font-size: 0.6rem;
+            color: #90caf9;
+            width: 40px;
+            min-width: 40px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .pw-team {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            width: 48px;
+            min-width: 48px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .pw-bar-wrap {
+            flex: 1;
+            min-width: 0;
+        }
+        .pw-bar-outer {
+            height: 6px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+        }
+        .pw-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.4s ease;
+        }
+        .pw-bar-seasoning {
+            height: 100%;
+            background: #a855f7;
+            transition: width 0.4s ease;
+        }
+        .pw-bar-feeding {
+            height: 100%;
+            background: #00c6ff;
+            transition: width 0.4s ease;
+        }
+        .pw-stats {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            min-width: 70px;
+            text-align: right;
+        }
+        .pw-pct {
+            font-size: 0.68rem;
+            font-weight: bold;
+            min-width: 36px;
+            text-align: right;
+        }
+        .pw-pct.high { color: var(--accent-green); }
+        .pw-pct.mid { color: var(--accent-orange); }
+        .pw-pct.low { color: var(--danger); }
+
+        /* 细滑动条 */
+        ::-webkit-scrollbar { width: 3px; height: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.4); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.7); }
+
+        /* 三面板可拖拽分隔线 */
+        .resize-handle {
+            width: 5px;
+            cursor: col-resize;
+            background: transparent;
+            flex-shrink: 0;
+            border-radius: 3px;
+            transition: background 0.2s;
+            position: relative;
+        }
+        .resize-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+        }
+        .resize-handle:hover, .resize-handle.dragging {
+            background: rgba(0,198,255,0.15);
+        }
+        .resize-handle:hover::after, .resize-handle.dragging::after {
+            background: rgba(0,198,255,0.6);
+        }
+
+        /* ===== 响应式：平板/小屏纵向排列 ===== */
+        @media (max-width: 1000px) {
+            body { overflow-y: auto; }
+            .main-content { flex-direction: column; overflow: visible; height: auto; }
+            .stagnant-side-panel, .left-panel, .right-panel {
+                flex: none !important; width: 100% !important; margin: 0 0 15px 0 !important;
+            }
+            .stagnant-side-panel { height: 650px; }
+            .left-panel { height: 500px; }
+            .right-panel { min-height: 600px; }
+            #echartMain { min-height: 350px; }
+            .resize-handle { display: none; }
+        }
+        /* ===== 响应式：手机（≤768px）全局缩小 ===== */
+        @media (max-width: 768px) {
+            .header-clock { font-size: 1.2rem; padding: 6px 0; }
+            .main-content { padding: 6px; }
+            .panel-glass { padding: 8px; border-radius: 6px; }
+
+            /* 人员卡片更紧凑 */
+            .worker-container { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 3px; padding: 2px; }
+            .worker-card { padding: 4px 5px; border-left-width: 2px; }
+            .worker-name { font-size: 0.68rem; }
+            .worker-count-wrap { font-size: 0.58rem !important; }
+            .worker-count-wrap small { font-size: 0.46rem !important; }
+            .worker-alert-text { font-size: 0.52rem !important; }
+            .worker-tag { font-size: 0.46rem; margin-bottom: 2px; }
+            .worker-sub-stats { font-size: 0.46rem; padding: 2px 3px; gap: 2px; margin-bottom: 2px; }
+            .warehouse-detail-row { font-size: 0.46rem; }
+            .exclude-btn { font-size: 0.44rem; padding: 2px 3px; }
+
+            /* 左面板头部 */
+            .left-header { gap: 4px; margin-bottom: 6px; }
+            .title-badge { font-size: 0.8rem; padding-left: 6px; border-left-width: 3px; }
+            .filter-group { padding: 3px 6px; gap: 4px; }
+            .filter-label { font-size: 0.6rem; }
+            #teamFilter { font-size: 0.65rem; padding: 2px 6px; }
+            .btn-export { font-size: 0.6rem; padding: 3px 6px; }
+            .btn-perm-check { font-size: 0.6rem; padding: 3px 6px; }
+            .online-badge { font-size: 0.6rem; padding: 3px 6px; }
+
+            /* 右面板：波次卡片 */
+            .wave-summary-row { grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 8px; }
+            .wave-card { padding: 6px; }
+            .wave-label { font-size: 0.68rem; margin-bottom: 3px; }
+            .wave-data { font-size: 0.6rem; }
+
+            /* 核心指标 */
+            .total-stats-row { padding: 8px 6px; margin-bottom: 6px; }
+            .total-label { font-size: 0.6rem; }
+            .total-val { font-size: 1.1rem; }
+            .progress-container { height: 7px; margin-bottom: 8px; }
+            .progress-text { font-size: 0.6rem; }
+
+            /* 卡单预警表格 */
+            .stagnant-panel-title { font-size: 0.82rem; padding-left: 6px; border-left-width: 3px; }
+            .stagnant-badge { font-size: 0.6rem; padding: 2px 5px; }
+            .stagnant-table { font-size: 0.6rem; }
+            .stagnant-table thead th, .stagnant-table td { padding: 3px 4px; }
+
+            /* 拣货中任务详情 */
+            .picking-progress-title { font-size: 0.82rem; padding-left: 6px; border-left-width: 3px; }
+            .picking-progress-badge { font-size: 0.6rem; padding: 2px 5px; }
+            .picking-overview { gap: 5px; margin-bottom: 5px; }
+            .picking-overview-item { padding: 4px 3px; }
+            .picking-overview-item .ov-label { font-size: 0.52rem; }
+            .picking-overview-item .ov-value { font-size: 0.72rem; }
+            .picking-wave-info { gap: 6px; margin-bottom: 4px; }
+            .wave-item { font-size: 0.55rem; padding: 2px 5px; }
+            .picking-bars-row { gap: 6px; margin-bottom: 5px; }
+            .picking-bar-label { font-size: 0.55rem; }
+            .picking-bar-outer { height: 5px; }
+            .picking-worker-row { padding: 3px 4px; gap: 4px; }
+            .pw-name { font-size: 0.62rem; width: 3em; min-width: 3em; }
+            .pw-wh { font-size: 0.5rem; width: 36px; min-width: 36px; }
+            .pw-team { font-size: 0.52rem; width: 40px; min-width: 40px; }
+            .pw-bar-outer { height: 4px; }
+            .pw-stats { font-size: 0.55rem; min-width: 55px; }
+            .pw-pct { font-size: 0.58rem; min-width: 28px; }
+
+            /* 面板高度适配 */
+            .stagnant-side-panel { height: 520px; }
+            .left-panel { height: 500px; }
+            .right-panel { min-height: 400px; }
+            #echartMain { min-height: 250px; }
+
+            /* 趋势线区域：移动端左图右文，对比数据分两行 */
+            #sparklineWrap { flex-wrap: nowrap; gap: 6px; }
+            #sparklineWrap canvas { max-width: 35%; flex-shrink: 0; }
+            #progressCompare { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+            /* 顶部操作栏：改为时钟下方居中 */
+            .top-actions {
+                position: relative !important;
+                top: auto !important; right: auto !important;
+                justify-content: center;
+                padding: 4px 0;
+                gap: 6px;
+            }
+            .top-actions .update-time { font-size: 0.58rem; }
+            .top-actions .top-btn {
+                font-size: 0.58rem !important; padding: 0 6px !important;
+                height: 22px !important; line-height: 20px !important;
+                border-width: 1px !important; border-radius: 4px !important;
+                box-sizing: border-box !important;
+            }
+
+            /* 导出按钮：移动端压扁 */
+            .btn-export {
+                height: 22px !important; line-height: 20px !important;
+                padding: 0 6px !important;
+                font-size: 0.55rem !important;
+                border-color: rgba(52,211,153,0.4) !important;
+                box-sizing: border-box !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-clock" id="clock">时间加载中...</div>
+<div class="marquee-bar empty" id="marqueeBar">
+    <div class="marquee-inner" id="marqueeInner"></div>
+</div>
+<div class="top-actions" style="position: absolute; top: 10px; right: 20px; z-index: 100; display:flex; align-items:center; gap:8px;">
+    <span class="update-time" id="lastUpdate">⏱ 更新中...</span>
+    <button id="authBtn" class="top-btn" onclick="toggleAuth()" style="font-size: 0.7rem; padding: 4px 10px; border-radius: 5px; cursor: pointer; background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3); transition: all 0.2s ease;" title="登录查看详细产出">🔐 登录</button>
+    <a href="/" class="top-btn" style="font-size:0.8rem; padding:4px 10px; border-radius:5px; color:#94a3b8; border:1px solid #334155; text-decoration:none; background:rgba(255,255,255,0.04);">← 返回目录</a>
+</div>
+
+<div class="modal-overlay" id="loginModal">
+    <div class="modal-box" style="min-width: 350px;">
+        <h4 style="color: var(--accent-green);">🔐 产出明细查看权限</h4>
+        <p>请输入密码以查看人员米面/上料详情</p>
+        <input type="password" id="loginPwdInput" style="width: 100%; background: var(--surface-1); color: #fff; border: 1px solid var(--border-medium); border-radius: 6px; padding: 10px; margin-bottom: 15px;" placeholder="请输入验证密码..." autocomplete="off">
+        <div class="modal-btns">
+            <button class="modal-btn-cancel" onclick="closeLoginModal()">取消</button>
+            <button class="modal-btn-confirm" style="background: var(--accent-green);" onclick="submitLogin()">确认解锁</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- 强提醒弹窗 -->
+<div class="modal-overlay" id="alertModal">
+    <div class="modal-box" style="min-width:400px; max-width:500px; border:1px solid rgba(255,82,82,0.5); box-shadow: 0 0 30px rgba(255,82,82,0.2);">
+        <h4 id="alertModalTitle" style="color:var(--danger);">⚠️ 紧急提醒</h4>
+        <div id="alertModalBody" style="font-size:0.9rem; color:#e2e8f0; text-align:left; max-height:350px; overflow-y:auto; margin-bottom:18px; line-height:1.8;"></div>
+        <div class="modal-btns">
+            <a id="alertModalAction" href="#" target="_blank" style="display:none; padding:8px 18px; border-radius:6px; background:var(--accent-blue); color:#fff; text-decoration:none; font-size:0.85rem; font-weight:600; transition:opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">去处理</a>
+            <button class="modal-btn-confirm" style="background:var(--danger); flex:1;" onclick="closeAlertModal()">我知道了</button>
+        </div>
+    </div>
+</div>
+
+<!-- 胜利动画 overlay -->
+<div class="victory-overlay" id="victoryOverlay">
+    <div class="victory-dim"></div>
+    <div class="victory-confetti" id="victoryConfetti"></div>
+    <div class="victory-center">
+        <div class="victory-icon">🏆</div>
+        <div class="victory-title">全部拣货任务已完成!</div>
+        <div class="victory-subtitle">今日调拨拣货圆满收工</div>
+        <div class="victory-stats">
+            <div class="victory-stat">
+                <div class="victory-stat-val" id="victoryPicked">0</div>
+                <div class="victory-stat-label">已拣件数</div>
+            </div>
+            <div class="victory-stat">
+                <div class="victory-stat-val" id="victoryWorkers">0</div>
+                <div class="victory-stat-label">参与人数</div>
+            </div>
+        </div>
+        <button class="victory-close" onclick="closeVictoryOverlay()">收工! 关闭</button>
+    </div>
+</div>
+
+<div class="main-content">
+    <div class="panel-glass stagnant-side-panel" id="stagnantPanel" style="margin-right:0;">
+        <!-- 上半部分：卡单预警（固定占50%，超出可滑动） -->
+        <div style="flex: 0 0 50%; max-height: 50%; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="stagnant-panel-title-bar">
+                <span class="stagnant-panel-title">拣货卡单预警</span>
+                <span class="stagnant-badge" id="stagnantCount">检测中...</span>
+            </div>
+            <div class="stagnant-scroll-body" id="stagnantTableWrap" style="flex:1; min-height:0; overflow-y:auto;">
+                <div class="stagnant-empty">正在加载...</div>
+            </div>
+        </div>
+        <!-- 下半部分：拣货中任务详情（固定占50%，超出可滑动） -->
+        <div class="picking-progress-section" id="pickingProgressSection">
+            <div class="picking-progress-title-bar">
+                <span class="picking-progress-title">拣货中任务详情</span>
+                <span class="picking-progress-badge" id="pickingProgressBadge">加载中...</span>
+            </div>
+            <!-- 履约波次统计（多波次时显示） -->
+            <div class="picking-wave-info" id="pickingWaveInfo" style="display:none;"></div>
+            <!-- 米面 & 上料进度条（一行两条） -->
+            <div class="picking-bars-row">
+                <div class="picking-bar-wrap">
+                    <div class="picking-bar-label">
+                        <span style="color:#c084fc">米面</span>
+                        <span id="ppSeasoningText" style="color:#c084fc">0/0</span>
+                    </div>
+                    <div class="picking-bar-outer">
+                        <div class="picking-bar-inner-seasoning" id="ppBarSeasoning" style="width:0%"></div>
+                    </div>
+                </div>
+                <div class="picking-bar-wrap">
+                    <div class="picking-bar-label">
+                        <span style="color:#72efdd">上料</span>
+                        <span id="ppFeedingText" style="color:#72efdd">0/0</span>
+                    </div>
+                    <div class="picking-bar-outer">
+                        <div class="picking-bar-inner-feeding" id="ppBarFeeding" style="width:0%"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- 人员拣货进度列表 -->
+            <div class="picking-worker-list" id="pickingWorkerList">
+                <div class="stagnant-empty">正在加载...</div>
+            </div>
+        </div>
+    </div>
+    <div class="resize-handle" id="resizeLeft"></div>
+
+    <div class="panel-glass left-panel">
+        <div class="left-header">
+            <div class="left-header-left">
+                <span class="title-badge">人员产出与异常监控</span>
+                <span class="online-badge" id="onlineCountLabel">🟢 在线: --</span>
+            </div>
+            <div class="left-header-right">
+                <div class="filter-group">
+                    <span class="filter-label">班组</span>
+                    <select id="teamFilter" onchange="handleTeamFilterChange(this.value)">
+                        <option value="all">全部</option>
+                    </select>
+                </div>
+                <a class="btn-perm-check" href="/permission">🔑 权限检查</a>
+                <button class="btn-export" onclick="exportWorkerData()">
+                    导出明细
+                </button>
+            </div>
+        </div>
+        <div class="worker-container" id="workerList"></div>
+    </div>
+    <div class="resize-handle" id="resizeRight"></div>
+
+    <div class="panel-glass right-panel">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <span class="title-badge" style="border-left-color:var(--accent-purple);">拣货总体进度</span>
+        </div>
+
+        <div class="wave-summary-row">
+            <div class="wave-card morning" data-wave="5">
+                <div class="wave-label">🌙 凌晨达</div>
+                <div class="wave-data">已拣：<span class="p-v">0</span> | 待生成：<span class="n-v">0</span> | 未拣：<span class="u-v">0</span></div>
+            </div>
+            <div class="wave-card noon" data-wave="1">
+                <div class="wave-label">🌅 上午达</div>
+                <div class="wave-data">已拣：<span class="p-v">0</span> | 待生成：<span class="n-v">0</span> | 未拣：<span class="u-v">0</span></div>
+            </div>
+            <div class="wave-card afternoon" data-wave="2">
+                <div class="wave-label">🌆 下午达</div>
+                <div class="wave-data">已拣：<span class="p-v">0</span> | 待生成：<span class="n-v">0</span> | 未拣：<span class="u-v">0</span></div>
+            </div>
+        </div>
+
+        <div class="progress-text">
+            <span>全场拣货进度</span>
+            <span class="progress-pct" id="progressPct">0%</span>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar-inner" id="progressBar" style="width:0%"></div>
+        </div>
+
+        <!-- 趋势线：点击跳转详情页 -->
+<div id="sparklineWrap" onclick="window.open('/progress_history','_blank')" title="点击查看近7天生产进度对比" style="cursor:pointer; margin:8px 0; padding:6px 10px; border-radius:8px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); display:flex; align-items:center; gap:10px; transition:background 0.2s; flex-wrap:wrap;">
+<canvas id="sparklineCanvas" width="200" height="32" style="display:block; max-width:40%;"></canvas>
+<div id="progressCompare" style="font-size:0.72rem; color:#94a3b8; white-space:normal; word-break:break-word;"></div>
+</div>
+
+        <div class="total-stats-row">
+            <div class="total-item" style="flex:1;">
+                <div class="total-label">总已拣数量</div>
+                <div class="total-val" id="totalPicked">0</div>
+                <div id="totalPickedBreakdown" style="font-size:0.75rem; margin-top:4px; display:none;">
+                    <span style="color:var(--accent-purple)">米面: <span id="tsItems" style="font-weight:bold; color:#fff">0</span></span>
+                    <span style="color:#334155; margin:0 4px;">|</span>
+                    <span style="color:var(--accent-blue)">上料: <span id="tfItems" style="font-weight:bold; color:#fff">0</span></span>
+                    <span style="color:#334155; margin:0 4px;">|</span>
+                    <span style="color:var(--accent-orange)">完工: <span id="totalPickedTasks" style="font-weight:bold; color:#fff">0</span> 单</span>
+                </div>
+            </div>
+
+            <div class="total-item" style="flex:1">
+                <div class="total-label">总未拣数量</div>
+                <div class="total-val danger-glow" id="totalUnpicked">0</div>
+            </div>
+            <div class="total-item" style="flex:1; cursor:pointer;" onclick="window.open('/created_bills','_blank')" title="点击查看子任务明细">
+                <div class="total-label">待拣已生成(米面/上料)</div>
+                <div class="total-val blue-glow" id="totalBills">0/0</div>
+            </div>
+        </div>
+
+        <div class="echart-scroll-wrap"><div id="echartMain"></div></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="excludeModal">
+    <div class="modal-box">
+        <h4 id="excludeModalTitle">确认标记</h4>
+        <p id="excludeModalMsg"></p>
+        <div class="modal-btns">
+            <button class="modal-btn-cancel" onclick="closeExcludeModal()">取消</button>
+            <button class="modal-btn-confirm" id="excludeModalConfirm" onclick="confirmExclude()">确认标记</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script src="/static/auth_check.js"></script>
+<script>
+    const chart = echarts.init(document.getElementById('echartMain'), 'dark');
+    const waveColors = { '凌晨达': '#ff9800', '上午达': '#00c6ff', '下午达': '#00e676' };
+
+    let currentTeamFilter = 'all';
+    let latestWorkersData = [];
+    let latestStagnantData = [];
+    let latestDashboardData = null;
+    let latestPickingWorkers = [];  // 当前拣货中的人员名单
+
+// 班组简称：去前缀去后缀，保留核心区分词
+function shortTeam(name) {
+if (!name) return '';
+let s = name;
+// 提取(B套)标记
+let suffix = '';
+if (s.includes('(B套)')) { suffix = 'B'; s = s.replace('(B套)', ''); }
+// 去掉常见前缀
+if (s.startsWith('自营标品')) {
+    s = s.slice(4);
+} else if (s.startsWith('输送线')) {
+    // 输送线系列：去掉前缀，保留"中组""乙组"，不加B套后缀
+    s = s.slice(3);
+    return s || name;
+}
+// 去掉末尾的"组"
+s = s.replace(/组$/, '');
+// "蔬菜投线" 简化为 "蔬菜"
+if (s === '蔬菜投线') s = '蔬菜';
+// 拼接后缀
+s = s + suffix;
+return s || name;
+}
+
+    // === 验证状态管理 ===
+    let isAuthenticated = localStorage.getItem('wms_auth_valid') === 'true';
+
+    function updateAuthUI() {
+        const btn = document.getElementById('authBtn');
+        if (isAuthenticated) {
+            btn.innerHTML = '🔓 已解锁';
+            btn.style.color = '#fff';
+            btn.style.background = 'rgba(0,128,0,0.1)';
+        } else {
+            btn.innerHTML = '🔐 登录';
+            btn.style.color = '#fff';
+            btn.style.background = 'rgba(0,128,0,0.1)';
+        }
+        renderWorkerList();
+        if (latestDashboardData) renderChart(latestDashboardData);
+    }
+
+    function toggleAuth() {
+        if (isAuthenticated) {
+            localStorage.removeItem('wms_auth_valid');
+            isAuthenticated = false;
+            updateAuthUI();
+        } else {
+            document.getElementById('loginModal').classList.add('show');
+            document.getElementById('loginPwdInput').focus();
+        }
+    }
+
+    function closeLoginModal() {
+        document.getElementById('loginModal').classList.remove('show');
+        document.getElementById('loginPwdInput').value = '';
+        _pendingExcludeBtn = null;  // 取消暂存的标记操作
+    }
+
+    document.getElementById('loginPwdInput').addEventListener('keypress', function(e) {
+        if(e.key === 'Enter') submitLogin();
+    });
+
+    async function submitLogin() {
+        const pwd = document.getElementById('loginPwdInput').value;
+        if (!pwd) return;
+        try {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pwd })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                localStorage.setItem('wms_auth_valid', 'true');
+                isAuthenticated = true;
+                // 先保存暂存的按钮引用（closeLoginModal 会清空它）
+                const pendingBtn = _pendingExcludeBtn;
+                closeLoginModal();
+                updateAuthUI();
+                // 如果有暂存的标记非拣货操作，密码通过后自动继续
+                if (pendingBtn) {
+                    openExcludeModal(pendingBtn.getAttribute('data-ename'), pendingBtn.getAttribute('data-exclude') === 'true');
+                }
+            } else {
+                alert(data.msg);
+            }
+        } catch(e) {
+            alert('验证请求失败');
+        }
+    }
+
+    // 初始化按钮 UI
+    updateAuthUI();
+
+
+    function handleTeamFilterChange(value) {
+        currentTeamFilter = value;
+        renderWorkerList();
+    }
+
+    function isWorkerOnline(worker) {
+        if (worker.clockout_time) return false;
+        return !worker.is_stagnant;
+    }
+
+    // ===== 渲染人员卡片 =====
+    function renderWorkerList() {
+        const isAllTeams = currentTeamFilter === 'all';
+        const filteredWorkers = (isAllTeams
+            ? [...latestWorkersData]
+            : latestWorkersData.filter(w => w.team_name === currentTeamFilter)
+        ).sort((a, b) => {
+            const aExcl = a.is_excluded ? 1 : 0;
+            const bExcl = b.is_excluded ? 1 : 0;
+            if (aExcl !== bExcl) return aExcl - bExcl;
+            const aOff = a.clockout_time ? 1 : 0;
+            const bOff = b.clockout_time ? 1 : 0;
+            if (aOff !== bOff) return aOff - bOff;
+            const aAlert = a.is_stagnant_alert ? 1 : 0;
+            const bAlert = b.is_stagnant_alert ? 1 : 0;
+            if (aAlert !== bAlert) return bAlert - aAlert;
+            return (b.total_count || 0) - (a.total_count || 0);
+        });
+
+        const onlineSpan = document.getElementById('onlineCountLabel');
+        if (isAllTeams) {
+            const totalOnline = latestWorkersData.filter(w => isWorkerOnline(w) && !w.is_excluded).length;
+            onlineSpan.innerHTML = `🟢 在线: ${totalOnline} 人`;
+        } else {
+            const activeInTeam = filteredWorkers.filter(w => !w.is_excluded);
+            const onlineCount = activeInTeam.filter(w => isWorkerOnline(w)).length;
+            const expectedCount = activeInTeam.length;
+            onlineSpan.innerHTML = `🟢 在线: ${onlineCount} / ${expectedCount} 人`;
+        }
+
+        const effSorted = [...filteredWorkers]
+            .filter(w => (w.total_count || 0) > 0 && !w.is_excluded)
+            .sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
+        const heroIds = {};
+        if (effSorted.length >= 3) {
+            heroIds[effSorted[0].name] = { cls: 'hero-gold',   medal: '🥇' };
+            heroIds[effSorted[1].name] = { cls: 'hero-silver', medal: '🥈' };
+            heroIds[effSorted[2].name] = { cls: 'hero-bronze', medal: '🥉' };
+        }
+
+        const list = document.getElementById('workerList');
+        list.innerHTML = filteredWorkers.map(w => {
+            const hero = heroIds[w.name];
+            const isLowEff = !w.is_excluded && !w.is_stagnant_alert && !hero && (w.total_count || 0) > 0
+                && (w.efficiency || 0) < 80;
+            let extraCls = '';
+            let medalHtml = '';
+            let lowTag = '';
+            const isOffDuty = !!w.clockout_time;
+            if (isOffDuty) {
+                extraCls = 'off-duty';
+            } else if (w.is_stagnant_alert) {
+                extraCls = 'stagnant';
+            } else if (hero) {
+                extraCls = hero.cls;
+                medalHtml = `<span class="hero-medal">${hero.medal}</span>`;
+            } else if (isLowEff) {
+                extraCls = 'low-eff';
+                lowTag = '<span class="low-eff-tag">低效</span>';
+            }
+            const isExcluded = !!w.is_excluded;
+            if (isExcluded && !extraCls) extraCls = 'excluded';
+            const excludedTag = isExcluded ? '<span class="excluded-tag">非拣货</span>' : '';
+            const noPermTag = (w.has_gxjhsm === false) ? '<span class="no-perm-tag">无权限</span>' : '';
+            const safeName = w.name.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+            const excludeBtn = isExcluded
+                ? `<span class="exclude-btn undo" data-ename="${safeName}" data-exclude="false">取消标记</span>`
+                : `<span class="exclude-btn" data-ename="${safeName}" data-exclude="true">标记非拣货</span>`;
+
+            let alertOrDutyHtml = '';
+            if (isOffDuty) {
+                alertOrDutyHtml = `<div class="worker-alert-text" style="color:#94a3b8; font-size:0.68rem;">🕐 下班打卡：${w.clockout_time.substring(11,16)}</div>`;
+            } else if (w.is_stagnant_alert) {
+                alertOrDutyHtml = `<div class="worker-alert-text" style="color:var(--danger); font-size:0.7rem; font-weight:bold;">⚠️ 停滞提醒：${w.idle_minutes} min</div>`;
+            }
+
+            // 权限控制的产出明细块
+            let subStatsHtml = '';
+            if (isAuthenticated) {
+                subStatsHtml = `
+                <div class="worker-sub-stats">
+                    <span style="color:var(--accent-purple)">米面: <b style="color:#fff">${w.seasoning_area_count || 0}</b></span>
+                    <span style="color:var(--accent-blue)">上料: <b style="color:#fff">${w.feeding_area_count || 0}</b></span>
+                </div>`;
+            } else {
+                subStatsHtml = `
+                <div class="worker-sub-stats locked" style="justify-content:center; cursor:pointer;" onclick="toggleAuth()">
+                    <span style="color:#64748b">🔒 登录查看米面及上料产出</span>
+                </div>`;
+            }
+
+            return `
+            <div class="worker-card ${extraCls}">
+                <div class="d-flex justify-content-between">
+                    <span class="worker-name">
+                        ${medalHtml}${w.name}
+                        ${w.is_temp_worker
+                            ? '<small class="badge bg-info text-dark" style="margin-left:2px;">临</small>'
+                            : (w.is_new_staff ? '<small class="badge bg-warning text-dark">新</small>' : '')
+                        }
+                        ${isOffDuty ? '<span class="off-duty-tag">已下班</span>' : ''}
+                        ${excludedTag}
+                        ${noPermTag}
+                        ${lowTag}
+                    </span>
+                    <span class="worker-count-wrap" style="font-size:0.78rem">
+                        <span style="color:var(--accent-green); font-weight:bold">
+                            ${w.total_count}<small style="font-size:0.6rem">件</small>
+                        </span>
+                        <span>/</span>
+                        <span style="color:var(--accent-blue); font-weight:bold">
+                            ${w.total_tasks || 0}<small style="font-size:0.6rem">单</small>
+                        </span>
+                    </span>
+                </div>
+                <div class="worker-tag">${shortTeam(w.team_name)} | 人效: ${Number(w.efficiency).toFixed(1)}/时</div>
+
+                ${subStatsHtml}
+
+                <div class="warehouse-detail-row">各仓单量: ${(w.bill_text||'').replace(/[^\s:]+(?=:\d)/g, shortWarehouse)}</div>
+
+                <div class="d-flex justify-content-between align-items-end" style="margin-top:4px">
+                    <div style="flex: 1; min-height: 14px;">
+                        ${alertOrDutyHtml}
+                    </div>
+                    <div style="margin-left: 8px; flex-shrink: 0;">
+                        ${excludeBtn}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function updateClock() {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        document.getElementById('clock').innerText = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function getRgba(hex, opacity) {
+        let r = parseInt(hex.slice(1, 3), 16),
+            g = parseInt(hex.slice(3, 5), 16),
+            b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    }
+
+    // 仓名简称→原始名映射（用于 tooltip 查数据）
+    let whShortToFull = {};
+
+    function renderChart(data) {
+        const series = [];
+        if (data.echarts_y_axis && data.echarts_series_data) {
+            // 建立简称→原始名映射
+            whShortToFull = {};
+            (data.echarts_y_axis || []).forEach(full => { whShortToFull[shortWarehouse(full)] = full; });
+
+            Object.keys(waveColors).forEach(key => {
+                const baseColor = waveColors[key];
+                series.push({
+                    name: key, type: 'bar', stack: key, data: data.echarts_series_data[key].p,
+                    itemStyle: { color: baseColor, borderRadius: [0, 2, 2, 0] }, barWidth: '22%',
+                    label: { show: true, position: 'right', color: '#fff', formatter: (v) => v.value > 0 ? v.value : '' }
+                });
+                series.push({
+                    name: key + '-u', type: 'bar', stack: key, data: data.echarts_series_data[key].u,
+                    itemStyle: { color: getRgba(baseColor, 0.15), borderWidth: 1, borderColor: getRgba(baseColor, 0.3), borderType: 'dashed', borderRadius: [0, 2, 2, 0] }
+                });
+            });
+
+            // 根据仓库数量动态计算图表高度，每个仓约 35px，最低 250px
+            const whCount = (data.echarts_y_axis || []).length;
+            const chartMinH = Math.max(250, whCount * 35 + 50);
+            const chartEl = document.getElementById('echartMain');
+            chartEl.style.minHeight = chartMinH + 'px';
+
+            chart.setOption({
+                backgroundColor: 'transparent',
+                legend: { data: Object.keys(waveColors), textStyle: { color: '#94a3b8' }, top: 0 },
+                grid: { left: '3%', right: '5%', bottom: '5%', top: '10%', containLabel: true },
+                dataZoom: [{ type: 'inside', orient: 'vertical', zoomOnMouseWheel: true, moveOnMouseMove: true }],
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    backgroundColor: 'rgba(15, 20, 28, 0.95)',
+                    borderColor: '#334155',
+                    textStyle: { color: '#fff' },
+                    formatter: (params) => {
+                        let res = `<div style="padding:5px">${params[0].name}<br/>`;
+                        const whName = whShortToFull[params[0].axisValue] || params[0].axisValue;
+                        const g = {};
+                        params.forEach(p => {
+                            const k = p.seriesName.replace('-u', '');
+                            if(!g[k]) g[k] = {p:0, u:0};
+                            p.seriesName.includes('-u') ? g[k].u = p.value : g[k].p = p.value;
+                        });
+                        Object.keys(g).forEach(k => {
+                            const total = g[k].p + g[k].u;
+                            if(total > 0) {
+                                const pct = ((g[k].p / total) * 100).toFixed(1);
+                                res += `<span style="color:${waveColors[k]}">●</span> ${k}: <b>${g[k].p}</b> / ${total} (${pct}%)<br/>`;
+                            }
+                        });
+
+                        res += `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed #334155; font-size:0.75rem;">`;
+                        const unpickedData = latestDashboardData.warehouse_area_unpicked?.[whName] || {seasoning:0, feeding:0};
+                        res += `<span>待拣米面: <b>${unpickedData.seasoning}</b></span><br/>`;
+                        res += `<span>待拣上料: <b>${unpickedData.feeding}</b></span><br/>`;
+                        // 待拣单数按波次明细
+                        const whNeedAllot = latestDashboardData.warehouse_wave_need_allot?.[whName] || {};
+                        const na5 = whNeedAllot['5'] || 0, na1 = whNeedAllot['1'] || 0, na2 = whNeedAllot['2'] || 0;
+                        const naTotal = na5 + na1 + na2;
+                        if (naTotal > 0) {
+                            res += `<span style="color:#ffcc80">待生成: <b>${naTotal}</b>（${na5}/${na1}/${na2}）</span>`;
+                        }
+                        res += `</div></div>`;
+                        return res;
+                    }
+                },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+                yAxis: { type: 'category', data: (data.echarts_y_axis || []).map(shortWarehouse), inverse: true, axisLabel: { color: '#cbd5e1' } },
+                series: series
+            }, true);
+            // setOption 后再 resize，确保图表正确填充容器
+            setTimeout(() => chart.resize(), 0);
+        }
+    }
+
+    function renderSparkline(sparkData) {
+        if (sparkData) window._lastSparkData = sparkData;
+        else sparkData = window._lastSparkData;
+        const canvas = document.getElementById('sparklineCanvas');
+        if (!canvas || !sparkData || sparkData.length < 2) {
+            document.getElementById('sparklineWrap').style.display = 'none';
+            return;
+        }
+        document.getElementById('sparklineWrap').style.display = 'flex';
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+        const vals = sparkData.map(d => d.v);
+        const max = Math.max(...vals);
+        const min = Math.min(...vals);
+        const range = max - min || 1;
+        // 渐变填充
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, 'rgba(0,230,118,0.25)');
+        grad.addColorStop(1, 'rgba(0,230,118,0)');
+        ctx.beginPath();
+        vals.forEach((v, i) => {
+            const x = (i / (vals.length - 1)) * w;
+            const y = h - ((v - min) / range) * (h - 6) - 3;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        // 填充区域
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        // 线条
+        ctx.beginPath();
+        ctx.strokeStyle = '#00e676';
+        ctx.lineWidth = 1.8;
+        vals.forEach((v, i) => {
+            const x = (i / (vals.length - 1)) * w;
+            const y = h - ((v - min) / range) * (h - 6) - 3;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        // 末端圆点
+        const lastX = w - 1;
+        const lastY = h - ((vals[vals.length-1] - min) / range) * (h - 6) - 3;
+        ctx.beginPath();
+        ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#00e676';
+        ctx.fill();
+    }
+
+    function renderProgressCompare(cmp) {
+        const el = document.getElementById('progressCompare');
+        if (!el || !cmp) {
+            if (el) el.innerHTML = '<span style="opacity:0.5">暂无历史对比数据</span>';
+            return;
+        }
+        let parts = [];
+        // vs 昨日（左）
+        if (cmp.yesterday_same_slot != null) {
+            const yd = cmp.yesterday_diff_pct;
+            const ya = yd >= 0 ? '↑' : '↓';
+            const yc = yd >= 0 ? '#00e676' : '#ff5252';
+            parts.push(`<span style="color:${yc};font-weight:600">${ya}${Math.abs(yd)}%</span> <span>vs 昨日 ${cmp.yesterday_same_slot.toLocaleString()}</span>`);
+        }
+        // vs 7天均值（右）
+        if (cmp.hist_avg_same_slot != null) {
+            const diff = cmp.diff_pct;
+            const arrow = diff >= 0 ? '↑' : '↓';
+            const color = diff >= 0 ? '#00e676' : '#ff5252';
+            parts.push(`<span style="color:${color};font-weight:600">${arrow}${Math.abs(diff)}%</span> <span>vs 7天均值 ${cmp.hist_avg_same_slot.toLocaleString()}</span>`);
+        }
+        // 移动端分两行显示（上: vs昨日，下: vs7天均值），PC端竖线分隔
+        if (parts.length > 0) {
+            const isMobile = window.innerWidth <= 768;
+            if (isMobile) {
+                el.innerHTML = parts.map(p => `<div style="line-height:1.4">${p}</div>`).join('');
+            } else {
+                el.innerHTML = parts.join('<span style="display:inline-block;margin:0 6px;opacity:0.3">|</span>');
+            }
+        } else {
+            el.innerHTML = '<span style="opacity:0.5">暂无历史对比数据</span>';
+        }
+    }
+
+    async function fetchData() {
+        try {
+            const res = await fetch('/api/dashboard');
+            const data = await res.json();
+
+            // 更新顶部统计数据
+            const picked = data.totalPicked || 0;
+            const unpicked = data.totalUnpicked || 0;
+            const total = picked + unpicked;
+            document.getElementById('tsItems').innerText = data.total_seasoning_items || 0;
+            document.getElementById('tfItems').innerText = data.total_feeding_items || 0;
+            document.getElementById('totalPickedTasks').innerText = data.total_picked_tasks || 0;
+            document.getElementById('totalPicked').innerText = picked;
+            document.getElementById('totalUnpicked').innerText = unpicked;
+            // 待拣已生成按波次显示
+            if (data.wave_totals) {
+                const wt = data.wave_totals;
+                const waveBillParts = [];
+                const waveOrder = [{id: '5', name: '凌晨达'}, {id: '1', name: '上午达'}, {id: '2', name: '下午达'}];
+                waveOrder.forEach(w => {
+                    const wv = wt[w.id] || {};
+                    const s = wv.seasoning_bills || 0;
+                    const f = wv.feeding_bills || 0;
+                    if (s > 0 || f > 0) waveBillParts.push(`${w.name} ${s}/${f}`);
+                });
+                const billsEl = document.getElementById('totalBills');
+                if (waveBillParts.length > 1) {
+                    billsEl.style.fontSize = '0.85rem';
+                    billsEl.innerHTML = waveBillParts.join('<br/>');
+                } else {
+                    billsEl.style.fontSize = '';
+                    billsEl.innerHTML = `${data.warehouse_seasoning_bills?.[0] || 0} / ${data.warehouse_feeding_bills?.[0] || 0}`;
+                }
+            } else {
+                document.getElementById('totalBills').innerHTML = `${data.warehouse_seasoning_bills?.[0] || 0} / ${data.warehouse_feeding_bills?.[0] || 0}`;
+            }
+            const dataTime = data.data_update_time || new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+            document.getElementById('lastUpdate').innerHTML = `⏱ 数据更新时间 ${dataTime}`;
+
+            const pct = total > 0 ? ((picked / total) * 100).toFixed(1) : 0;
+            document.getElementById('progressPct').textContent = pct + '%';
+            document.getElementById('progressBar').style.width = pct + '%';
+
+            if (data.wave_totals) {
+                [5, 1, 2].forEach(id => {
+                    const wave = data.wave_totals[id] || { picked: 0, need_allot: 0, unpicked: 0 };
+                    const card = document.querySelector(`.wave-card[data-wave="${id}"]`);
+                    if (card) {
+                        card.querySelector('.p-v').innerText = wave.picked;
+                        card.querySelector('.n-v').innerText = wave.need_allot;
+                        card.querySelector('.u-v').innerText = wave.unpicked;
+                    }
+                });
+            }
+
+            latestWorkersData = data.workers || [];
+            latestDashboardData = data;
+
+            const teamSelect = document.getElementById('teamFilter');
+            const uniqueTeams = data.teams || [];
+            const existingOptions = Array.from(teamSelect.options).map(opt => opt.value).filter(val => val !== 'all');
+            if (existingOptions.length !== uniqueTeams.length || !existingOptions.every(val => uniqueTeams.includes(val))) {
+                let optionsHtml = `<option value="all">全部</option>`;
+                uniqueTeams.forEach(team => optionsHtml += `<option value="${team}">${shortTeam(team)}</option>`);
+                teamSelect.innerHTML = optionsHtml;
+                if (currentTeamFilter !== 'all' && !uniqueTeams.includes(currentTeamFilter)) currentTeamFilter = 'all';
+                teamSelect.value = currentTeamFilter;
+            }
+
+            renderWorkerList();
+            renderChart(data);
+            renderSparkline(data.today_sparkline);
+            renderProgressCompare(data.progress_compare);
+            checkVictory();
+
+        } catch (e) { console.error("Update Error:", e); }
+    }
+
+    // ===== 异常滚动播报栏 =====
+    function updateMarquee() {
+        const msgs = [];
+        const data = latestDashboardData;
+
+        // 1. 长时间卡单（≥15min）简洁提示
+        if (latestStagnantData && latestStagnantData.length > 0) {
+            const urgent = latestStagnantData.filter(r => (r.stagnant_minutes || 0) >= 15);
+            if (urgent.length > 0) {
+                const details = urgent.slice(0, 5).map(r => { const tag = r.is_temp_worker ? '[临]' : (r.team_name ? '[' + shortTeam(r.team_name) + ']' : ''); return `${r.handler_name}${tag} ${r.stagnant_minutes}min`; }).join('、');
+                const cls = urgent.some(r => r.stagnant_minutes >= 30) ? 'marquee-danger' : 'marquee-warn';
+                msgs.push(`<span class="marquee-item"><span class="${cls}">🚨 卡单${urgent.length}人：${details}</span></span>`);
+            }
+        }
+
+        // 2. 人员停滞（≥20min），与卡单不同的独立数据源
+        if (latestWorkersData) {
+            const stagnantWorkers = latestWorkersData.filter(w => !w.is_excluded && !w.clockout_time && (w.idle_minutes || 0) >= 20);
+            if (stagnantWorkers.length > 0) {
+                const details = stagnantWorkers.slice(0, 5).map(w => { const tag = w.is_temp_worker ? '[临]' : (w.team_name ? '[' + shortTeam(w.team_name) + ']' : ''); return `${w.name}${tag} ${w.idle_minutes}min`; }).join('、');
+                msgs.push(`<span class="marquee-item"><span class="marquee-danger">⚠️ 停滞${stagnantWorkers.length}人：${details}</span></span>`);
+            }
+        }
+
+        // 3. 待生成任务预警
+        if (data && data.wave_totals) {
+            const needAllotItems = [];
+            let totalNeedAllot = 0;
+            [{id:5, name:'凌晨达'}, {id:1, name:'上午达'}, {id:2, name:'下午达'}].forEach(wv => {
+                const w = data.wave_totals[wv.id];
+                if (w && (w.need_allot || 0) > 0) {
+                    needAllotItems.push(`${wv.name}${w.need_allot}条`);
+                    totalNeedAllot += w.need_allot;
+                }
+            });
+            if (needAllotItems.length > 0) {
+                msgs.push(`<span class="marquee-item"><span class="marquee-warn">📋 待生成：${needAllotItems.join('、')}</span></span>`);
+            }
+
+            // 已生成单数少 + 待生成件量大 → 提醒待放单
+            const generatedBills = (data.warehouse_seasoning_bills?.[0] || 0) + (data.warehouse_feeding_bills?.[0] || 0);
+            // 单仓待生成检查（清溪阈值1500，其他仓400）
+            const whNeedAllotData = data.warehouse_wave_need_allot || {};
+            const overWhList = [];
+            for (const wh of Object.keys(whNeedAllotData)) {
+                const whTotal = Object.values(whNeedAllotData[wh]).reduce((s, v) => s + (v || 0), 0);
+                const threshold = wh.includes('清溪') ? 1500 : 400;
+                if (whTotal > threshold) overWhList.push(`${shortWarehouse(wh)}(${whTotal}件)`);
+            }
+            if (generatedBills < 20 && (totalNeedAllot > 2000 || overWhList.length > 0)) {
+                const detail = overWhList.length > 0 ? `，${overWhList.join('、')}超阈值` : '';
+                msgs.unshift(`<span class="marquee-item"><span class="marquee-danger">🔔 待放单提醒：已生成仅 ${generatedBills} 单，待生成 ${totalNeedAllot} 件${detail}，请及时放单！</span></span>`);
+            }
+        }
+
+        // 4. 低效末3
+        if (latestWorkersData && latestWorkersData.length > 0) {
+            const online = latestWorkersData.filter(w => !w.clockout_time && !w.is_excluded && (w.total_count || 0) > 0);
+            if (online.length >= 5) {
+                const sorted = [...online].sort((a, b) => (a.efficiency || 0) - (b.efficiency || 0));
+                const bottom3 = sorted.slice(0, 3);
+                const details = bottom3.map(w => `${w.name}(${Number(w.efficiency || 0).toFixed(1)}/h)`).join('、');
+                msgs.push(`<span class="marquee-item"><span class="marquee-info">📉 效率末3：${details}</span></span>`);
+            }
+        }
+
+        // 5. 波次即将完成提示
+        if (data && data.wave_totals) {
+            [{id:5, name:'凌晨达'}, {id:1, name:'上午达'}, {id:2, name:'下午达'}].forEach(wv => {
+                const w = data.wave_totals[wv.id];
+                if (w) {
+                    const total = (w.picked || 0) + (w.unpicked || 0);
+                    if (total > 0 && w.unpicked <= total * 0.1 && w.unpicked > 0) {
+                        msgs.push(`<span class="marquee-item"><span class="marquee-info">✅ ${wv.name}即将完成（剩${w.unpicked}件）</span></span>`);
+                    }
+                }
+            });
+        }
+
+        const bar = document.getElementById('marqueeBar');
+        const inner = document.getElementById('marqueeInner');
+        if (msgs.length === 0) {
+            bar.classList.add('empty');
+        } else {
+            bar.classList.remove('empty');
+            inner.innerHTML = msgs.join('');
+            const duration = Math.max(20, msgs.length * 8);
+            inner.style.animationDuration = duration + 's';
+        }
+    }
+
+    // 导出 CSV 功能
+    function exportWorkerData() {
+        if (!latestWorkersData || latestWorkersData.length === 0) {
+            alert("暂无数据可导出！");
+            return;
+        }
+        let filteredWorkers = currentTeamFilter === 'all'
+            ? [...latestWorkersData]
+            : latestWorkersData.filter(w => w.team_name === currentTeamFilter);
+        // 过滤非拣货人员：剔除被标记排除(is_excluded)的人员，以及米面+上料件量均为0的人员
+        // （鸡蛋逻辑区已在后端人效统计阶段排除，不会出现在件量中）
+        filteredWorkers = filteredWorkers.filter(w =>
+            !w.is_excluded &&
+            ((w.seasoning_area_count || 0) > 0 || (w.feeding_area_count || 0) > 0)
+        );
+        if (filteredWorkers.length === 0) {
+            alert("过滤后无拣货人员数据可导出！");
+            return;
+        }
+        filteredWorkers.sort((a, b) => (b.efficiency || 0) - (a.efficiency || 0));
+        function fmtTime(dt) {
+            if (!dt) return '';
+            const s = String(dt);
+            if (s.includes(' ')) return s.split(' ')[1].slice(0, 5);
+            return s.slice(0, 5);
+        }
+        function calcAttendanceHours(clockin, clockout) {
+            if (!clockin || !clockout) return 0;
+            try {
+                let ci = new Date(clockin.replace(' ', 'T'));
+                let co = new Date(clockout.replace(' ', 'T'));
+                if (co < ci) co.setDate(co.getDate() + 1);
+                return (co - ci) / 3600000;
+            } catch(e) { return 0; }
+        }
+        // 根据岗位描述(job_type)判断计时/计件标签，命中"计时"/"计件"关键字则返回对应标签，否则返回空字符串
+        function wageTypeLabel(jobType) {
+            if (!jobType) return '';
+            if (jobType.indexOf('计时') !== -1) return '计时';
+            if (jobType.indexOf('计件') !== -1) return '计件';
+            return '';
+        }
+        const headers = ["姓名", "新老员工", "员工类型", "班组", "上班打卡", "最后完成", "下班打卡", "米面件量(件)", "上料件量(件)", "米面单数", "上料单数", "直接效率(件/时)", "综合效率(件/时)", "单量", "停滞次数", "停滞总时长(分)"];
+        const rows = filteredWorkers.map(w => {
+            const directEff = Number(w.efficiency || 0).toFixed(1);
+            const attHours = calcAttendanceHours(w.clockin_time, w.clockout_time);
+            const totalCount = (w.seasoning_area_count || 0) + (w.feeding_area_count || 0);
+            const overallEff = (attHours > 0 && totalCount > 0) ? (totalCount / attHours).toFixed(1) : '';
+            const wageLabel = wageTypeLabel(w.job_type);
+            const teamText = w.is_temp_worker ? "临时工" : (shortTeam(w.team_name) || "未知");
+            return [
+                w.name,
+                w.is_new_staff ? "新人" : "老手",
+                wageLabel,
+                teamText,
+                fmtTime(w.clockin_time),
+                fmtTime(w.last_modify_time),
+                fmtTime(w.clockout_time),
+                w.seasoning_area_count || 0,
+                w.feeding_area_count || 0,
+                w.seasoning_bill_count || 0,
+                w.feeding_bill_count || 0,
+                directEff,
+                overallEff,
+                w.total_tasks || 0,
+                w.stagnant_count || 0,
+                w.stagnant_total_minutes || 0
+            ];
+        });
+        const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\n");
+        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const dateStr = new Date().toISOString().split('T')[0];
+        const teamStr = currentTeamFilter === 'all' ? '全部班组' : currentTeamFilter;
+        link.setAttribute("href", url);
+        link.setAttribute("download", `人员拣货效率排名_${teamStr}_${dateStr}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    async function fetchStagnant() {
+        try {
+            const res = await fetch('/api/picking_stagnant');
+            const rows = await res.json();
+
+            latestStagnantData = rows || [];
+
+            // 渲染由 renderStagnantPanel 统一完成（含在线未领单），避免闪烁
+        } catch(e) {
+            console.error('卡单预警加载失败:', e);
+        }
+    }
+
+    // ===== 统一渲染卡单预警 + 在线未领单（一次性写入，避免闪烁） =====
+    function renderStagnantPanel() {
+        const badge = document.getElementById('stagnantCount');
+        const wrap = document.getElementById('stagnantTableWrap');
+        const panel = document.getElementById('stagnantPanel');
+        const rows = latestStagnantData || [];
+
+        // ---- 1. 卡单行 ----
+        let dedupRows = [];
+        if (rows.length > 0) {
+            const dedupMap = {};
+            rows.forEach(r => {
+                const key = r.handler_name;
+                if (!dedupMap[key]) { dedupMap[key] = r; return; }
+                const prev = dedupMap[key];
+                const rDone = r.alert_reason === '拣完未提交' ? 1 : 0;
+                const pDone = prev.alert_reason === '拣完未提交' ? 1 : 0;
+                if (rDone > pDone || (rDone === pDone && (r.stagnant_minutes || 0) > (prev.stagnant_minutes || 0))) {
+                    dedupMap[key] = r;
+                }
+            });
+            dedupRows = Object.values(dedupMap);
+            dedupRows.sort((a, b) => {
+                const aDone = a.alert_reason === '拣完未提交' ? 1 : 0;
+                const bDone = b.alert_reason === '拣完未提交' ? 1 : 0;
+                if (aDone !== bDone) return bDone - aDone;
+                return (b.stagnant_minutes || 0) - (a.stagnant_minutes || 0);
+            });
+        }
+
+        // ---- 2. 在线未领单行 ----
+        const stagnantNames = new Set(rows.map(r => r.handler_name));
+        const pickingNames = new Set((latestPickingWorkers || []).map(w => w.name));
+        const now = new Date();
+
+        let idleWorkers = [];
+        if (latestWorkersData && latestWorkersData.length > 0) {
+            idleWorkers = latestWorkersData.filter(w => {
+                if (w.is_excluded) return false;
+                if (w.clockout_time) return false;
+                if (w.is_stagnant) return false;   // 与"在线"口径一致：is_stagnant 的人不算在线
+                if ((w.total_count || 0) === 0) return false;
+                if (stagnantNames.has(w.name)) return false;
+                if (pickingNames.has(w.name)) return false;
+                if (!w.last_modify_time) return false;
+                return true;
+            });
+            idleWorkers.sort((a, b) => (b.idle_minutes || 0) - (a.idle_minutes || 0));
+        }
+
+        // ---- 3. 组装 HTML 一次性写入 ----
+        const stagnantCount = dedupRows.length;
+        const idleCount = idleWorkers.length;
+
+        if (stagnantCount === 0 && idleCount === 0) {
+            badge.textContent = '暂无告警';
+            badge.style.background = 'rgba(0,230,118,0.12)';
+            badge.style.color = 'var(--accent-green)';
+            panel.style.borderColor = 'rgba(0,230,118,0.2)';
+            panel.style.background = 'var(--card-bg)';
+            wrap.innerHTML = '<div class="stagnant-empty">✅ 当前无卡单</div>';
+            return;
+        }
+
+        // 徽章
+        if (stagnantCount > 0 && idleCount > 0) {
+            badge.textContent = `${stagnantCount} 条卡单 + ${idleCount} 人未领单`;
+            badge.style.background = 'rgba(255,82,82,0.2)';
+            badge.style.color = 'var(--danger)';
+            panel.style.borderColor = 'rgba(255,82,82,0.35)';
+            panel.style.background = 'rgba(255,82,82,0.04)';
+        } else if (stagnantCount > 0) {
+            badge.textContent = `${stagnantCount} 条卡单`;
+            badge.style.background = 'rgba(255,82,82,0.2)';
+            badge.style.color = 'var(--danger)';
+            panel.style.borderColor = 'rgba(255,82,82,0.35)';
+            panel.style.background = 'rgba(255,82,82,0.04)';
+        } else {
+            badge.textContent = `${idleCount} 人在线未领单`;
+            badge.style.background = 'rgba(144,202,249,0.15)';
+            badge.style.color = '#90caf9';
+            panel.style.borderColor = 'rgba(144,202,249,0.2)';
+            panel.style.background = 'var(--card-bg)';
+        }
+
+        // 卡单行 HTML
+        // 构建拣货人→波次名映射（用于判断凌晨达）
+        const workerWaveMap = {};
+        (latestPickingWorkers || []).forEach(w => { if (w.wave_name) workerWaveMap[w.name] = w.wave_name; });
+
+        const stagnantHtml = dedupRows.map(r => {
+            const isDone = r.alert_reason === '拣完未提交';
+            const mins = r.stagnant_minutes || 0;
+            const isUrgent = mins >= 30;
+            const isWarn = mins >= 8;
+            const reasonColor = isDone ? 'var(--danger)' : 'var(--accent-orange)';
+            const nameColor  = isDone ? 'var(--danger)' : 'var(--accent-orange)';
+            const minsCls = isUrgent ? 'stagnant-mins-urgent' : 'stagnant-mins';
+            const reasonCls = isDone ? 'reason-urgent-blink' : '';
+            const rowCls = isWarn ? 'stagnant-row-warn' : '';
+            const personTag = r.is_temp_worker ? '<span style="color:#64748b;font-size:0.8em">[临]</span>' : (r.team_name ? '<span style="color:#64748b;font-size:0.8em">[' + shortTeam(r.team_name) + ']</span>' : '');
+            const isLCD = workerWaveMap[r.handler_name] === '凌晨达';
+            const whStyle = isLCD ? 'font-weight:bold;color:#ffd600' : '';
+            return `
+                        <tr class="${rowCls}">
+                            <td style="color:${nameColor};font-weight:bold">${r.handler_name}${personTag}</td>
+                            <td>${r.logic_area_name ? shortArea(r.logic_area_name) : '-'}</td>
+                            <td style="${whStyle}">${shortWarehouse(r.biz_bill_name) || '-'}</td>
+                            <td>${r.order_unit_qty} / ${r.actual_unit_qty}</td>
+                            <td style="color:#64748b">${(r.last_modify_time || '').slice(11, 16)}</td>
+                            <td class="${minsCls}">${mins} min</td>
+                            <td class="${reasonCls}" style="color:${reasonColor};font-weight:bold">${r.alert_reason || '-'}</td>
+                        </tr>`;
+        }).join('');
+
+        // 在线未领单行 HTML
+        const idleHtml = idleWorkers.map(w => {
+            let mins = Math.round(w.idle_minutes || 0);
+            if (w.last_modify_time) {
+                const lm = new Date(w.last_modify_time.replace(' ', 'T'));
+                if (!isNaN(lm)) mins = Math.round((now - lm) / 60000);
+            }
+            const lastTime = (w.last_modify_time || '').slice(11, 16);
+            const personTag = w.is_temp_worker ? '<span style="color:#64748b;font-size:0.8em">[临]</span>' : (w.team_name ? '<span style="color:#64748b;font-size:0.8em">[' + shortTeam(w.team_name) + ']</span>' : '');
+            return `
+            <tr>
+                <td style="color:#90caf9;font-weight:bold">${w.name}${personTag}</td>
+                <td>-</td>
+                <td>-</td>
+                <td>-</td>
+                <td style="color:#64748b">${lastTime}</td>
+                <td class="stagnant-mins">${mins} min</td>
+                <td style="color:#90caf9;font-weight:bold">在线未领单</td>
+            </tr>`;
+        }).join('');
+
+        wrap.innerHTML = `
+                <table class="stagnant-table">
+                    <thead>
+                        <tr>
+                            <th>拣货人</th>
+                            <th>逻辑区</th>
+                            <th>目标仓</th>
+                            <th>应拣/实拣</th>
+                            <th>最后更新</th>
+                            <th>停滞时长</th>
+                            <th>备注</th>
+                        </tr>
+                    </thead>
+                    <tbody>${stagnantHtml}${idleHtml}</tbody>
+                </table>`;
+    }
+
+    // ===== 拣货中任务详情 =====
+    // 仓名简称：CKA深圳履约中心→CKA深圳，深圳南山仓→南山
+    function shortWarehouse(name) {
+        if (!name) return '';
+        // CKA履约中心系列：CKA深圳履约中心→CKA深圳
+        let m = name.match(/^CKA(.+?)履约中心$/);
+        if (m) return 'CKA' + m[1];
+        // 标品转运仓：深圳凤岗标品转运仓→凤岗转运
+        m = name.match(/^(?:深圳|惠州|东莞|广州)(.+?)标品转运仓$/);
+        if (m) return m[1] + '转运';
+        // 配送商站点：惠州河源站（配送商）→河源
+        m = name.match(/^(?:深圳|惠州|东莞|广州|佛山|中山|珠海|江门|肇庆|茂名|湛江|汕头|揭阳|潮州|梅州|河源|清远|韶关|云浮|阳江)(.+?)[站](?:（配送商）|\(配送商\))?$/);
+        if (m) return m[1];
+        // 普通仓：深圳南山仓→南山
+        m = name.match(/^(?:深圳|惠州|东莞|广州|佛山|中山|珠海|江门|肇庆|茂名|湛江|汕头|揭阳|潮州|梅州|河源|清远|韶关|云浮|阳江)(.+?)仓$/);
+        if (m) return m[1];
+        // 兜底：已经是CKA开头的直接返回
+        if (name.startsWith('CKA')) return name;
+        return name;
+    }
+
+    // 逻辑区简称映射
+    function shortArea(areaName) {
+        if (!areaName) return '';
+        if (areaName.includes('G1')) return '上料G1';
+        if (areaName.includes('G4')) return '上料G4';
+        if (areaName.includes('G2')) return '米面G2';
+        if (areaName.includes('G3')) return '米面G3';
+        return areaName.slice(0, 4);
+    }
+
+    async function fetchPickingProgress() {
+        try {
+            const res = await fetch('/api/picking_in_progress');
+            const data = await res.json();
+            if (!data.ok) {
+                document.getElementById('pickingWorkerList').innerHTML = '<div class="stagnant-empty">数据加载失败</div>';
+                return;
+            }
+
+            const ov = data.overview;
+            const badge = document.getElementById('pickingProgressBadge');
+            badge.textContent = `${ov.total_tasks} 个任务`;
+
+            // 履约波次信息（多波次时显示）
+            const waves = data.waves || [];
+            const waveEl = document.getElementById('pickingWaveInfo');
+            if (waves.length > 1) {
+                waveEl.style.display = 'flex';
+                waveEl.innerHTML = waves.map(wv => {
+                    const wpct = wv.order_qty > 0 ? ((wv.actual_qty / wv.order_qty) * 100).toFixed(0) : 0;
+                    const waveColor = wv.name === '凌晨达' ? '#ffd600' : '#90caf9';
+                    return `<div class="wave-item"><span class="wave-name" style="color:${waveColor}">${wv.name}</span><span class="wave-detail">${wv.task_count}单 ${wv.actual_qty}/${wv.order_qty} (${wpct}%)</span></div>`;
+                }).join('');
+            } else {
+                waveEl.style.display = 'none';
+            }
+
+            // 米面进度条（独立计算百分比）
+            const seasoningOrder = ov.seasoning_order_qty || 1;
+            const seasoningPct = ((ov.seasoning_actual_qty / seasoningOrder) * 100).toFixed(1);
+            document.getElementById('ppBarSeasoning').style.width = seasoningPct + '%';
+            document.getElementById('ppSeasoningText').textContent = `${ov.seasoning_actual_qty}/${ov.seasoning_order_qty}`;
+
+            // 上料进度条（独立计算百分比）
+            const feedingOrder = ov.feeding_order_qty || 1;
+            const feedingPct = ((ov.feeding_actual_qty / feedingOrder) * 100).toFixed(1);
+            document.getElementById('ppBarFeeding').style.width = feedingPct + '%';
+            document.getElementById('ppFeedingText').textContent = `${ov.feeding_actual_qty}/${ov.feeding_order_qty}`;
+
+            // 人员进度列表
+            const workers = data.workers || [];
+            latestPickingWorkers = workers;  // 存储拣货中人员名单
+            if (workers.length === 0) {
+                document.getElementById('pickingWorkerList').innerHTML = '<div class="stagnant-empty">当前无拣货中任务</div>';
+                return;
+            }
+
+            document.getElementById('pickingWorkerList').innerHTML = workers.map(w => {
+                const pct = w.total_order > 0 ? ((w.total_actual / w.total_order) * 100).toFixed(0) : 0;
+                const pctCls = pct >= 80 ? 'high' : (pct >= 40 ? 'mid' : 'low');
+                // 进度条宽度 = 完成百分比（actual/order），直观反映拣货进度
+                const barW = w.total_order > 0 ? ((w.total_actual / w.total_order) * 100).toFixed(1) : 0;
+                // 根据逻辑区决定进度条颜色：上料=青色，米面=紫色
+                const areaStr = w.area_label || '';
+                const barColor = areaStr.startsWith('上料') ? 'linear-gradient(90deg,#00c6ff,#72efdd)' : 'linear-gradient(90deg,#a855f7,#c084fc)';
+                const tempCls = w.is_temp_worker ? ' temp' : '';
+                const whShort = shortWarehouse(w.warehouse || '');
+                const isLCD = (w.wave_name || '') === '凌晨达';
+                const whStyle = isLCD ? 'font-weight:bold;color:#ffd600' : '';
+                return `
+                <div class="picking-worker-row">
+                    <span class="pw-name${tempCls}" title="${w.name}">${w.name}</span>
+                    <span class="pw-wh" title="${whShort}" style="${whStyle}">${whShort}</span>
+                    <span class="pw-team" title="${areaStr}">${areaStr}</span>
+                    <div class="pw-bar-wrap">
+                        <div class="pw-bar-outer">
+                            <div class="pw-bar-fill" style="width:${barW}%;background:${barColor}"></div>
+                        </div>
+                    </div>
+                    <span class="pw-stats">${w.total_actual}/${w.total_order}</span>
+                    <span class="pw-pct ${pctCls}">${pct}%</span>
+                </div>`;
+            }).join('');
+        } catch(e) {
+            console.error('拣货中详情加载失败:', e);
+            document.getElementById('pickingWorkerList').innerHTML = '<div class="stagnant-empty">加载异常</div>';
+        }
+    }
+
+    async function refreshAll() {
+        const t0 = new Date();
+        await Promise.all([fetchData(), fetchStagnant(), fetchPickingProgress()]);
+        renderStagnantPanel();
+        const hhmm = t0.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('lastUpdate').innerHTML = `⏱ 数据更新时间 ${hhmm}`;
+        updateMarquee();
+    }
+    refreshAll();
+    setInterval(refreshAll, 30000);
+    window.addEventListener('resize', () => chart.resize());
+
+    // ===== 强提醒弹窗逻辑（队列机制） =====
+    const alertQueue = [];      // 弹窗队列：[{title, bodyHtml, onClose, actionUrl}]
+    let alertModalShowing = false;
+    let alertModalCurrentTitle = '';  // 当前正在显示的弹窗标题
+
+    function closeAlertModal() {
+        document.getElementById('alertModal').classList.remove('show');
+        alertModalShowing = false;
+        alertModalCurrentTitle = '';
+        // 如果队列中还有待弹窗，延迟300ms弹出下一个（让动画结束）
+        if (alertQueue.length > 0) {
+            setTimeout(showNextAlert, 300);
+        }
+    }
+
+    function showNextAlert() {
+        if (alertQueue.length === 0 || alertModalShowing) return;
+        const item = alertQueue.shift();
+        alertModalShowing = true;
+        alertModalCurrentTitle = item.title;
+        document.getElementById('alertModalTitle').innerHTML = item.title;
+        document.getElementById('alertModalBody').innerHTML = item.bodyHtml;
+        // 处理「去处理」按钮
+        const actionBtn = document.getElementById('alertModalAction');
+        if (item.actionUrl) {
+            actionBtn.href = item.actionUrl;
+            actionBtn.style.display = 'inline-block';
+        } else {
+            actionBtn.style.display = 'none';
+        }
+        document.querySelector('#alertModal .modal-btn-confirm').onclick = () => {
+            if (item.onClose) item.onClose();
+            closeAlertModal();
+        };
+        document.getElementById('alertModal').classList.add('show');
+    }
+
+    function enqueueAlert(title, bodyHtml, onClose, actionUrl) {
+        // 同类型弹窗：如果当前正在显示同标题的，直接覆盖内容
+        if (alertModalShowing && alertModalCurrentTitle === title) {
+            document.getElementById('alertModalBody').innerHTML = bodyHtml;
+            const actionBtn = document.getElementById('alertModalAction');
+            if (actionUrl) { actionBtn.href = actionUrl; actionBtn.style.display = 'inline-block'; }
+            else { actionBtn.style.display = 'none'; }
+            document.querySelector('#alertModal .modal-btn-confirm').onclick = () => {
+                if (onClose) onClose();
+                closeAlertModal();
+            };
+            return;
+        }
+        // 队列中已有同标题的，覆盖队列中那条
+        const existIdx = alertQueue.findIndex(q => q.title === title);
+        if (existIdx !== -1) {
+            alertQueue[existIdx] = { title, bodyHtml, onClose, actionUrl: actionUrl || null };
+            return;
+        }
+        alertQueue.push({ title, bodyHtml, onClose, actionUrl: actionUrl || null });
+        if (!alertModalShowing) showNextAlert();
+    }
+
+    // 待生成任务弹窗检查（3分钟轮询）
+    let needAllotAlertDismissedAt = 0;
+
+    function checkNeedAllotAlert() {
+        if (!latestDashboardData || !latestDashboardData.wave_totals || !latestDashboardData.warehouse_wave_need_allot) return;
+        const now = new Date();
+        const hhmm = now.getHours() * 100 + now.getMinutes();
+
+        // 21:10之后检查凌晨达，23:10之后检查上午达+下午达
+        let checkWaves = [];
+        if (hhmm >= 2110) checkWaves.push({id:'5', name:'凌晨达'});
+        if (hhmm >= 2310) { checkWaves.push({id:'1', name:'上午达'}); checkWaves.push({id:'2', name:'下午达'}); }
+        if (checkWaves.length === 0) return;
+
+        // 如果刚关闭弹窗不到3分钟，不再弹
+        if (Date.now() - needAllotAlertDismissedAt < 180000) return;
+
+        const whData = latestDashboardData.warehouse_wave_need_allot;
+        const alertLines = [];
+        for (const wh of Object.keys(whData)) {
+            checkWaves.forEach(wv => {
+                const cnt = whData[wh][wv.id] || 0;
+                if (cnt > 0) alertLines.push(`<b>${shortWarehouse(wh)}</b>，${wv.name}，<span style="color:var(--danger);font-weight:bold">${cnt}条</span>任务待生成`);
+            });
+        }
+
+        if (alertLines.length > 0) {
+            enqueueAlert('🚨 待生成任务未清零', alertLines.join('<br/>'), () => {
+                needAllotAlertDismissedAt = Date.now();
+            }, 'https://klwms.meituan.com/app/haina/stockOut/shareAllotPick');
+        }
+    }
+
+    // 卡单≥30分钟弹窗检查
+    let stagnantAlertDismissedAt = 0;
+    let lastStagnantAlertNames = '';
+
+    function checkStagnantAlert() {
+        if (!latestStagnantData || latestStagnantData.length === 0) return;
+        const urgent = latestStagnantData.filter(r => (r.stagnant_minutes || 0) >= 30);
+        if (urgent.length === 0) return;
+
+        // 如果列表没变化且刚关闭不到3分钟，不弹
+        const nameKey = urgent.map(r => r.handler_name + r.stagnant_minutes).join(',');
+        if (nameKey === lastStagnantAlertNames && Date.now() - stagnantAlertDismissedAt < 180000) return;
+
+        const lines = urgent.map(r => {
+            const tag = r.is_temp_worker ? '<span style="color:#ff9800;font-size:0.85em;">[临]</span>' : (r.team_name ? '<span style="color:#64748b;font-size:0.85em;">[' + shortTeam(r.team_name) + ']</span>' : '');
+            return `<b>${r.handler_name}</b>${tag} — ${r.biz_bill_name || ''} — 已卡单 <span style="color:var(--danger);font-weight:bold">${r.stagnant_minutes}min</span>（${r.actual_unit_qty}/${r.order_unit_qty}件）${r.alert_reason ? ' [' + r.alert_reason + ']' : ''}`;
+        });
+        enqueueAlert('🚨 卡单超30分钟预警', lines.join('<br/>'), () => {
+            stagnantAlertDismissedAt = Date.now();
+            lastStagnantAlertNames = nameKey;
+        });
+    }
+
+    // 23:30后调拨单未完成弹窗检查
+    let allocAlertDismissedAt = 0;
+
+    function checkAllocationCreatedAlert() {
+        if (!latestDashboardData) return;
+        const now = new Date();
+        const hhmm = now.getHours() * 100 + now.getMinutes();
+        if (hhmm < 2330) return;
+
+        const cnt = latestDashboardData.allocation_created_count || 0;
+        if (cnt <= 0) return;
+
+        // 刚关闭弹窗不到3分钟，不再弹
+        if (Date.now() - allocAlertDismissedAt < 180000) return;
+
+        enqueueAlert(
+            '🚨 调拨单未执行完成',
+            `当前仍有 <span style="color:var(--danger);font-weight:bold">${cnt}</span> 条调拨单处于 <b>CREATED</b> 状态，请及时处理！`,
+            () => { allocAlertDismissedAt = Date.now(); },
+            'https://klwms.meituan.com/app/haina/stockOut/transferManage'
+        );
+    }
+
+    // 每3分钟检查一次弹窗
+    setInterval(() => { checkNeedAllotAlert(); checkStagnantAlert(); checkAllocationCreatedAlert(); }, 180000);
+    // 首次数据加载后也检查一次（延迟5秒等数据到位）
+    setTimeout(() => { checkNeedAllotAlert(); checkStagnantAlert(); checkAllocationCreatedAlert(); }, 5000);
+
+    // 标记人员部分（需要密码验证）...
+    let _pendingExcludeBtn = null;  // 暂存待执行的标记按钮（等密码验证通过后执行）
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.exclude-btn');
+        if (!btn || !btn.closest('#workerList')) return;
+        e.preventDefault(); e.stopPropagation();
+        if (!isAuthenticated) {
+            // 未登录：暂存操作 → 弹出密码框
+            _pendingExcludeBtn = btn;
+            document.getElementById('loginModal').classList.add('show');
+            document.getElementById('loginPwdInput').focus();
+            return;
+        }
+        openExcludeModal(btn.getAttribute('data-ename'), btn.getAttribute('data-exclude') === 'true');
+    });
+
+    let _excludeName = '', _excludeAction = true, _excludeBusy = false;
+    function openExcludeModal(name, exclude) {
+        if (_excludeBusy) return;
+        _excludeName = name; _excludeAction = exclude;
+        const btn = document.getElementById('excludeModalConfirm');
+        if (exclude) {
+            document.getElementById('excludeModalTitle').textContent = '确认标记';
+            document.getElementById('excludeModalMsg').innerHTML = `确认将 <strong style="color:var(--text-main);">${name}</strong> 标记为非拣货人员？<br/>标记后该人员的异常将不再被跟踪。`;
+            btn.textContent = '确认标记'; btn.classList.remove('undo');
+        } else {
+            document.getElementById('excludeModalTitle').textContent = '取消标记';
+            document.getElementById('excludeModalMsg').innerHTML = `确认取消 <strong style="color:var(--text-main);">${name}</strong> 的非拣货标记？<br/>取消后将恢复跟踪该人员的异常。`;
+            btn.textContent = '确认取消'; btn.classList.add('undo');
+        }
+        document.getElementById('excludeModal').classList.add('show');
+    }
+    function closeExcludeModal() { document.getElementById('excludeModal').classList.remove('show'); }
+
+    async function confirmExclude() {
+        _excludeBusy = true;
+        const btn = document.getElementById('excludeModalConfirm');
+        const originalText = btn.textContent;
+        btn.textContent = '处理中...'; btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/exclude_worker', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: _excludeName, exclude: _excludeAction })
+            });
+            const data = await res.json();
+            if (data.ok) { window.location.reload(); }
+            else { alert(data.msg || '操作失败'); closeExcludeModal(); btn.textContent = originalText; btn.disabled = false; _excludeBusy = false; }
+        } catch (e) { alert('网络错误，请重试'); closeExcludeModal(); btn.textContent = originalText; btn.disabled = false; _excludeBusy = false; }
+    }
+
+    // 三面板拖拽部分...
+    const LEFT_MIN_WIDTH  = 190, RIGHT_MIN_WIDTH = 190, MID_MIN_WIDTH   = 230;
+    const leftPanel = document.querySelector('.left-panel'), stagnantPanel = document.getElementById('stagnantPanel'), rightPanel = document.querySelector('.right-panel');
+
+    (function initResizeLeft() {
+        const handle = document.getElementById('resizeLeft');
+        if (!handle) return;
+        let startX, startStagnantW;
+        handle.addEventListener('mousedown', e => {
+            e.preventDefault(); startX = e.clientX; startStagnantW = stagnantPanel.offsetWidth;
+            handle.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
+            function onMove(e) { stagnantPanel.style.flex = `0 0 ${Math.max(LEFT_MIN_WIDTH, startStagnantW + Math.min(e.clientX - startX, leftPanel.offsetWidth - MID_MIN_WIDTH))}px`; }
+            function onUp() { handle.classList.remove('dragging'); document.body.style.cursor = ''; document.body.style.userSelect = ''; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+            document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+        });
+    })();
+
+    (function initResizeRight() {
+        const handle = document.getElementById('resizeRight');
+        if (!handle) return;
+        let startX, startRightW;
+        handle.addEventListener('mousedown', e => {
+            e.preventDefault(); startX = e.clientX; startRightW = rightPanel.offsetWidth;
+            handle.classList.add('dragging'); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
+            function onMove(e) { rightPanel.style.flex = `0 0 ${Math.max(RIGHT_MIN_WIDTH, startRightW - Math.max(e.clientX - startX, MID_MIN_WIDTH - leftPanel.offsetWidth))}px`; chart.resize(); }
+            function onUp() { handle.classList.remove('dragging'); document.body.style.cursor = ''; document.body.style.userSelect = ''; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); chart.resize(); }
+            document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+        });
+    })();
+    // ===== 拣货完成胜利动画 =====
+    let victoryShown = false;       // 本次会话是否已经弹过
+    let victoryDismissed = false;   // 用户手动关闭过
+
+    function spawnConfetti() {
+        const container = document.getElementById('victoryConfetti');
+        container.innerHTML = '';
+        const colors = ['#ffd700','#ff6b6b','#48bb78','#63b3ed','#f6ad55','#fc8181','#b794f4','#68d391','#f687b3','#90cdf4'];
+        const shapes = ['borderRadius:50%', 'borderRadius:2px', 'borderRadius:0;transform:rotate(45deg)'];
+        for (let i = 0; i < 80; i++) {
+            const el = document.createElement('div');
+            el.className = 'confetti-piece';
+            const c = colors[Math.floor(Math.random() * colors.length)];
+            const s = shapes[Math.floor(Math.random() * shapes.length)];
+            const sz = 6 + Math.random() * 8;
+            el.style.cssText = `left:${Math.random()*100}%;top:-${10+Math.random()*10}px;width:${sz}px;height:${sz}px;background:${c};${s};animation-duration:${2.5+Math.random()*3}s;animation-delay:${Math.random()*2}s;`;
+            container.appendChild(el);
+        }
+    }
+
+    function showVictoryOverlay() {
+        if (victoryDismissed) return;
+        const d = latestDashboardData;
+        if (!d) return;
+        document.getElementById('victoryPicked').textContent = d.totalPicked || 0;
+        document.getElementById('victoryWorkers').textContent = d.participating_count || 0;
+        spawnConfetti();
+        const overlay = document.getElementById('victoryOverlay');
+        overlay.classList.add('show');
+        victoryShown = true;
+    }
+
+    function closeVictoryOverlay() {
+        document.getElementById('victoryOverlay').classList.remove('show');
+        victoryDismissed = true;
+    }
+
+    function checkVictory() {
+        if (victoryDismissed) return;
+        const d = latestDashboardData;
+        if (!d) return;
+        const picking = d.pick_status_picking_count;
+        const created = d.pick_status_created_count;
+        const alloc = d.allocation_created_count;
+        const picked = d.totalPicked || 0;
+        // 全部完成：拣货中=0, 已生成=0, 调拨单CREATED=0, 且已拣>0
+        if (picking === 0 && created === 0 && alloc === 0 && picked > 0) {
+            if (!victoryShown) showVictoryOverlay();
+        } else {
+            // 数据回退（比如新增了任务），重置状态允许再次弹出
+            if (victoryShown && !victoryDismissed) {
+                document.getElementById('victoryOverlay').classList.remove('show');
+                victoryShown = false;
+            }
+        }
+    }
+
+    // ===== 页面关闭时通知后台停止抓取 =====
+    window.addEventListener('beforeunload', function() {
+        navigator.sendBeacon('/api/deactivate');
+    });
+</script>
+</body>
+</html>

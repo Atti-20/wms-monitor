@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>班组出勤统计</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📋</text></svg>">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f141c;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 20px;
+}
+.header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 1.3rem; font-weight: 600; }
+.header .meta { font-size: 0.8rem; color: #64748b; }
+.back-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid #334155;
+    color: #94a3b8; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 0.8rem; transition: all 0.2s; text-decoration: none;
+}
+.back-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+.controls {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.controls input[type="date"] {
+    background: rgba(255,255,255,0.05); border: 1px solid #334155;
+    color: #e2e8f0; padding: 6px 12px; border-radius: 6px;
+    font-size: 0.85rem; outline: none;
+}
+.controls input[type="date"]:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,0.12); }
+.controls input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+.refresh-btn {
+    background: #38bdf8; color: #0c1929; border: none;
+    padding: 7px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 0.82rem; font-weight: 600; transition: all 0.2s;
+}
+.refresh-btn:hover { box-shadow: 0 0 20px rgba(56,189,248,0.25); }
+.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.refresh-btn.loading { animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+.status-msg {
+    font-size: 0.78rem; color: #64748b;
+    padding: 0 4px;
+}
+.status-msg.ok { color: #34d399; }
+.status-msg.err { color: #f87171; }
+
+/* 总览卡片 */
+.summary-row {
+    display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.summary-card {
+    flex: 1; min-width: 120px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 14px 16px;
+    text-align: center;
+}
+.summary-card .label { font-size: 0.72rem; color: #64748b; margin-bottom: 4px; }
+.summary-card .value { font-size: 1.4rem; font-weight: 700; color: #38bdf8; }
+.summary-card .sub { font-size: 0.68rem; margin-top: 3px; color: #64748b; }
+
+/* 热力矩阵表 */
+.card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+.card h2 { font-size: 1rem; margin-bottom: 14px; color: #94a3b8; font-weight: 500; }
+.card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+}
+.card-header h2 { margin-bottom: 0; }
+
+.matrix-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+}
+.matrix-table {
+    width: 100%; border-collapse: collapse; font-size: 0.8rem;
+    min-width: 600px;
+}
+.matrix-table th {
+    padding: 8px 10px; text-align: center;
+    background: rgb(23, 27, 35);
+    color: #64748b; font-weight: 600; font-size: 0.72rem;
+    border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; z-index: 5;
+    white-space: nowrap;
+}
+.matrix-table th:first-child {
+    text-align: left; position: sticky; left: 0; z-index: 10;
+    background: rgb(23, 27, 35);
+}
+.matrix-table td {
+    padding: 8px 10px; text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: all 0.15s;
+}
+.matrix-table td:first-child {
+    text-align: left; font-weight: 500; white-space: nowrap;
+    position: sticky; left: 0; background: #0f141c; z-index: 3;
+}
+.matrix-table tr:hover td { background: rgba(255,255,255,0.03); }
+.matrix-table tr:hover td:first-child { background: rgba(255,255,255,0.06); }
+.matrix-table .total-row td {
+    font-weight: 700; color: #e2e8f0;
+    border-top: 2px solid rgba(56,189,248,0.3);
+    background: rgba(56,189,248,0.04);
+}
+.matrix-table .total-row td:first-child {
+    background: rgba(56,189,248,0.08);
+}
+
+/* 热力色阶 */
+.cell-0 { color: #334155; }
+.cell-1 { color: #94a3b8; }
+.cell-2 { color: #e2e8f0; background: rgba(56,189,248,0.06); }
+.cell-3 { color: #38bdf8; background: rgba(56,189,248,0.12); }
+.cell-4 { color: #38bdf8; background: rgba(56,189,248,0.2); font-weight: 600; }
+
+/* 空状态 */
+.empty-state {
+    text-align: center; padding: 60px 20px; color: #64748b;
+}
+.empty-state h3 { color: #94a3b8; font-weight: 600; margin-bottom: 8px; }
+.empty-state p { font-size: 0.85rem; line-height: 1.6; }
+
+/* 甘特图 */
+#ganttContainer { width: 100%; overflow-x: auto; }
+#ganttCanvas { display: block; }
+
+/* ========== 班组管理面板 ========== */
+.toggle-btn {
+    background: rgba(255,255,255,0.06); border: 1px solid #334155;
+    color: #94a3b8; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 0.78rem; transition: all 0.2s;
+}
+.toggle-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.toggle-btn.active { background: rgba(56,189,248,0.15); border-color: #38bdf8; color: #38bdf8; }
+
+.team-config-panel { display: none; }
+.team-config-panel.visible { display: block; }
+
+.config-toolbar {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.config-toolbar input, .config-toolbar select {
+    background: rgba(255,255,255,0.05); border: 1px solid #334155;
+    color: #e2e8f0; padding: 6px 10px; border-radius: 6px;
+    font-size: 0.82rem; outline: none;
+}
+.config-toolbar input:focus, .config-toolbar select:focus {
+    border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,0.12);
+}
+.config-toolbar select { min-width: 120px; }
+.config-toolbar select option { background: #1e293b; color: #e2e8f0; }
+
+.config-table {
+    width: 100%; border-collapse: collapse; font-size: 0.82rem;
+}
+.config-table th {
+    padding: 8px 12px; text-align: left;
+    background: rgb(23, 27, 35); color: #64748b;
+    font-weight: 600; font-size: 0.72rem;
+    border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; z-index: 5;
+}
+.config-table td {
+    padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.config-table tr:hover td { background: rgba(255,255,255,0.03); }
+.config-table tr.is-custom td { background: rgba(56,189,248,0.04); }
+.config-table tr.is-custom:hover td { background: rgba(56,189,248,0.08); }
+
+.badge-custom {
+    display: inline-block; font-size: 0.65rem; padding: 1px 6px;
+    border-radius: 3px; background: rgba(56,189,248,0.15);
+    color: #38bdf8; margin-left: 6px; vertical-align: middle;
+}
+.badge-orig {
+    display: inline-block; font-size: 0.65rem; padding: 1px 6px;
+    border-radius: 3px; background: rgba(100,116,139,0.2);
+    color: #64748b; margin-left: 6px; vertical-align: middle;
+}
+.badge-temp {
+    display: inline-block; font-size: 0.6rem; padding: 1px 5px;
+    border-radius: 3px; background: rgba(251,191,36,0.15);
+    color: #fbbf24; margin-left: 4px; vertical-align: middle;
+}
+
+.edit-select {
+    background: rgba(255,255,255,0.06); border: 1px solid #334155;
+    color: #e2e8f0; padding: 3px 6px; border-radius: 4px;
+    font-size: 0.78rem; outline: none; min-width: 100px;
+}
+.edit-select:focus { border-color: #38bdf8; }
+.edit-select option { background: #1e293b; color: #e2e8f0; }
+
+.edit-input {
+    background: rgba(255,255,255,0.06); border: 1px solid #334155;
+    color: #e2e8f0; padding: 3px 6px; border-radius: 4px;
+    font-size: 0.78rem; outline: none; width: 90px;
+}
+.edit-input:focus { border-color: #38bdf8; }
+
+.save-btn {
+    background: #34d399; color: #0c1929; border: none;
+    padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    font-size: 0.72rem; font-weight: 600; transition: all 0.2s;
+}
+.save-btn:hover { box-shadow: 0 0 12px rgba(52,211,153,0.25); }
+
+.reset-btn {
+    background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.3);
+    color: #f87171; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    font-size: 0.72rem; transition: all 0.2s;
+}
+.reset-btn:hover { background: rgba(248,113,113,0.25); }
+
+.config-count { font-size: 0.78rem; color: #64748b; margin-left: auto; }
+
+.config-scroll {
+    max-height: 480px; overflow-y: auto; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.04);
+}
+
+.cb-custom-only {
+    display: flex; align-items: center; gap: 4px; font-size: 0.78rem;
+    color: #94a3b8; cursor: pointer; user-select: none;
+}
+.cb-custom-only input { accent-color: #38bdf8; }
+
+/* 密码弹窗 */
+.auth-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 10000;
+    justify-content: center;
+    align-items: center;
+}
+.auth-overlay.show { display: flex; }
+.auth-box {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 12px; padding: 28px 32px;
+    min-width: 340px; text-align: center;
+}
+.auth-box h4 { color: #38bdf8; margin-bottom: 10px; font-size: 1rem; }
+.auth-box p { color: #94a3b8; font-size: 0.82rem; margin-bottom: 16px; }
+.auth-box input[type="password"] {
+    width: 100%; background: rgba(255,255,255,0.06);
+    border: 1px solid #334155; color: #e2e8f0;
+    padding: 8px 12px; border-radius: 6px;
+    font-size: 0.88rem; outline: none; margin-bottom: 16px;
+}
+.auth-box input[type="password"]:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,0.12); }
+.auth-btns { display: flex; gap: 10px; justify-content: center; }
+.auth-btns button {
+    padding: 7px 20px; border-radius: 6px; border: none;
+    font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.auth-btn-cancel { background: rgba(255,255,255,0.08); color: #94a3b8; }
+.auth-btn-cancel:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.auth-btn-confirm { background: #38bdf8; color: #0c1929; }
+.auth-btn-confirm:hover { box-shadow: 0 0 20px rgba(56,189,248,0.25); }
+
+/* 全局滚动条 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+html { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    body { padding: 12px; }
+    .header h1 { font-size: 1.05rem; }
+    .summary-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .summary-card { min-width: 0; padding: 8px 6px; }
+    .summary-card .value { font-size: 1rem; }
+    .card { padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+    #ganttCanvas { min-height: 200px; }
+    .matrix-table { font-size: 0.7rem; }
+    .matrix-table th, .matrix-table td { padding: 5px 6px; }
+    .controls { gap: 6px; }
+}
+@media (max-width: 480px) {
+    .summary-row { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div style="position:absolute; top:10px; right:20px; z-index:100; display:flex; align-items:center; gap:8px;">
+    <a href="/" style="font-size:0.8rem; padding:4px 10px; border-radius:5px; color:#94a3b8; border:1px solid #334155; text-decoration:none; background:rgba(255,255,255,0.04); transition:all 0.2s;">← 返回目录</a>
+</div>
+<div class="header">
+    <div class="header-left">
+        <h1>班组出勤统计</h1>
+    </div>
+</div>
+
+<div class="controls">
+    <input type="date" id="dateInput">
+    <button class="refresh-btn" id="refreshBtn" onclick="doRefresh()">拉取考勤</button>
+    <button class="toggle-btn" onclick="exportAttendanceDetail()">📤 导出明细</button>
+    <span class="status-msg" id="statusMsg"></span>
+</div>
+
+<div class="summary-row" id="summaryRow" style="display:none;"></div>
+
+<div class="card" id="chartCard" style="display:none;">
+    <h2>班组出勤甘特图</h2>
+    <div id="ganttContainer">
+        <canvas id="ganttCanvas"></canvas>
+    </div>
+</div>
+
+<div class="card">
+    <h2>班组 × 时段出勤明细</h2>
+    <div id="matrixContainer">
+        <div class="empty-state">
+            <h3>暂无数据</h3>
+            <p>点击「拉取考勤」按钮获取今日出勤数据</p>
+        </div>
+    </div>
+</div>
+
+<!-- 密码验证弹窗 -->
+<div class="auth-overlay" id="authModal">
+    <div class="auth-box">
+        <h4>🔐 操作权限验证</h4>
+        <p>修改班组配置需要输入密码</p>
+        <input type="password" id="authPwdInput" placeholder="请输入验证密码..." autocomplete="off">
+        <div class="auth-btns">
+            <button class="auth-btn-cancel" onclick="closeAuthModal()">取消</button>
+            <button class="auth-btn-confirm" onclick="submitAuthLogin()">确认解锁</button>
+        </div>
+    </div>
+</div>
+
+<!-- 班组配置管理面板 -->
+<div class="card">
+    <div class="card-header">
+        <h2>班组配置管理</h2>
+        <button class="toggle-btn" id="toggleConfigBtn" onclick="toggleConfigPanel()">展开配置</button>
+    </div>
+    <div class="team-config-panel" id="configPanel">
+        <div class="config-toolbar">
+            <input type="text" id="cfgSearch" placeholder="搜索姓名..." style="width:140px;" onkeydown="if(event.key==='Enter')loadTeamMembers()">
+            <button class="toggle-btn" onclick="loadTeamMembers()" style="padding:4px 10px;">🔍 搜索</button>
+            <select id="cfgFilterOrig" onchange="loadTeamMembers()">
+                <option value="">全部原班组</option>
+            </select>
+            <select id="cfgFilterTeam" onchange="loadTeamMembers()">
+                <option value="">全部生效班组</option>
+            </select>
+            <label class="cb-custom-only">
+                <input type="checkbox" id="cfgCustomOnly" onchange="loadTeamMembers()"> 仅显示已修改
+            </label>
+            <button class="toggle-btn" onclick="triggerImportExcel()" title="上传 Excel 批量修改班组（需包含 姓名、班组 两列）">📥 导入Excel</button>
+            <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleImportFile(event)">
+            <button class="toggle-btn" id="syncSystemTeamsBtn" onclick="syncSystemTeams()" title="从 KLWMS 系统拉取全量在职人员班组，更新原班组数据" style="background:#1e3a5f;">🔄 同步系统班组</button>
+            <button class="toggle-btn" id="resetAllTeamsBtn" onclick="resetAllTeams()" title="清除所有自定义班组配置，全员恢复为系统原班组" style="background:#5c1a1a;">↩ 一键恢复原班组</button>
+            <span class="config-count" id="cfgCount"></span>
+        </div>
+        <div class="config-scroll">
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th style="width:100px;">姓名</th>
+                        <th style="width:130px;">原班组</th>
+                        <th style="width:180px;">生效班组</th>
+                        <th style="width:140px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="configBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+const dateInput = document.getElementById('dateInput');
+const refreshBtn = document.getElementById('refreshBtn');
+const statusMsg = document.getElementById('statusMsg');
+const summaryRow = document.getElementById('summaryRow');
+const chartCard = document.getElementById('chartCard');
+const matrixContainer = document.getElementById('matrixContainer');
+
+// 初始化日期为今天
+const today = new Date();
+dateInput.value = today.toISOString().split('T')[0];
+
+// 页面加载时尝试获取数据
+loadData();
+
+function setStatus(msg, type) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'status-msg' + (type ? ' ' + type : '');
+}
+
+async function loadData() {
+    const date = dateInput.value;
+    if (!date) return;
+
+    try {
+        const resp = await fetch('/api/attendance?date=' + date);
+        const data = await resp.json();
+
+        if (!data.has_data) {
+            matrixContainer.innerHTML = `
+                <div class="empty-state">
+                    <h3>${date} 暂无数据</h3>
+                    <p>点击「拉取考勤」按钮获取该日出勤数据</p>
+                </div>`;
+            summaryRow.style.display = 'none';
+            chartCard.style.display = 'none';
+            return;
+        }
+
+        renderSummary(data);
+        renderMatrix(data);
+        loadGanttChart(date);
+
+    } catch (e) {
+        setStatus('加载失败: ' + e.message, 'err');
+    }
+}
+
+function renderSummary(data) {
+    const teams = data.teams;
+    const hours = data.hours;
+    const hourlyTotal = data.hourly_total;
+
+    const totalTeams = teams.filter(t => t !== '未分组').length;
+
+    let peakVal = 0, peakH = '';
+    Object.entries(hourlyTotal).forEach(([h, v]) => {
+        if (v > peakVal) { peakVal = v; peakH = h; }
+    });
+
+    const totalPeople = data.total_people || 0;
+
+    summaryRow.innerHTML = `
+        <div class="summary-card">
+            <div class="label">班组数</div>
+            <div class="value">${totalTeams}</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">覆盖时段</div>
+            <div class="value">${hours.length}</div>
+            <div class="sub">${formatHour(hours[0])} ~ ${formatHour(hours[hours.length - 1])}</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">峰值出勤</div>
+            <div class="value">${peakVal}</div>
+            <div class="sub">${formatHour(peakH)} 时段</div>
+        </div>
+        <div class="summary-card">
+            <div class="label">总出勤</div>
+            <div class="value">${totalPeople}</div>
+            <div class="sub">人</div>
+        </div>
+    `;
+    summaryRow.style.display = 'flex';
+}
+
+function renderMatrix(data) {
+    const { hours, teams, matrix, hourly_total } = data;
+    const teamPeople = data.team_people || {};
+    const totalPeople = data.total_people || 0;
+
+    if (!hours.length) {
+        matrixContainer.innerHTML = '<div class="empty-state"><h3>暂无数据</h3></div>';
+        return;
+    }
+
+    let allCounts = [];
+    teams.forEach(t => {
+        hours.forEach(h => {
+            const v = (matrix[t] || {})[String(h)] || 0;
+            if (v > 0) allCounts.push(v);
+        });
+    });
+    const maxCount = Math.max(...allCounts, 1);
+    const q1 = Math.ceil(maxCount * 0.25);
+    const q2 = Math.ceil(maxCount * 0.5);
+    const q3 = Math.ceil(maxCount * 0.75);
+
+    let html = '<div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>班组</th>';
+    hours.forEach(h => { html += `<th>${formatHour(h)}</th>`; });
+    html += '<th style="color:#38bdf8;">合计</th></tr></thead><tbody>';
+
+    teams.forEach(t => {
+        html += `<tr><td>${t}</td>`;
+        hours.forEach(h => {
+            const val = (matrix[t] || {})[String(h)] || 0;
+            const cls = getCellClass(val, q1, q2, q3);
+            html += `<td class="${cls}">${val || '-'}</td>`;
+        });
+        const rowPeople = teamPeople[t] || 0;
+        html += `<td style="font-weight:600;color:#e2e8f0;">${rowPeople}</td></tr>`;
+    });
+
+    html += '<tr class="total-row"><td>合计</td>';
+    hours.forEach(h => {
+        const val = hourly_total[String(h)] || 0;
+        html += `<td>${val}</td>`;
+    });
+    html += `<td>${totalPeople}</td></tr>`;
+
+    html += '</tbody></table></div>';
+    matrixContainer.innerHTML = html;
+}
+
+// ======================================================================
+//  甘特图绘制（支持按班组折叠/展开 + 折叠态整点出勤汇总）
+// ======================================================================
+
+const GANTT_COLORS = [
+    '#38bdf8', '#34d399', '#fb923c', '#a78bfa', '#f87171',
+    '#fbbf24', '#22d3ee', '#f472b6', '#818cf8', '#4ade80',
+    '#e879f9', '#60a5fa', '#2dd4bf'
+];
+
+let _ganttTooltip = null;
+let _ganttCollapsed = {};   // { teamName: true/false } 班组折叠状态
+let _ganttData = null;      // 缓存最近一次数据，折叠切换时直接重绘
+
+async function loadGanttChart(date) {
+    try {
+        const resp = await fetch('/api/attendance/gantt?date=' + date);
+        const data = await resp.json();
+        if (!data.has_data || !data.teams.length) {
+            chartCard.style.display = 'none';
+            return;
+        }
+        chartCard.style.display = 'block';
+        _ganttData = data;
+        renderGantt(data);
+    } catch (e) {
+        console.error('加载甘特图失败:', e);
+        chartCard.style.display = 'none';
+    }
+}
+
+function renderGantt(data) {
+    const canvas = document.getElementById('ganttCanvas');
+    const container = document.getElementById('ganttContainer');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    // ---------- 布局常量 ----------
+    const LABEL_W = 110;
+    const ROW_H = 22;
+    const TEAM_GAP = 10;
+    const TEAM_HEADER_H = 28;
+    const TOP_AXIS_H = 32;
+    const BAR_H = 14;
+    const BOTTOM_PAD = 12;
+    const SUMMARY_ROW_H = 28;  // 折叠态汇总行高度
+
+    // ---------- 时间范围（固定 08:00 ~ 次日07:00，共23小时） ----------
+    const hStart = 8;      // 起点 08:00
+    const hEnd = 31;       // 终点 次日07:00 (=24+7)
+    const totalHours = hEnd - hStart;  // 23
+
+    // ---------- 计算画布尺寸（考虑折叠） ----------
+    const chartW = Math.max(container.clientWidth, LABEL_W + totalHours * 60);
+    let totalH = TOP_AXIS_H;
+    for (const team of data.teams) {
+        const collapsed = !!_ganttCollapsed[team.team_name];
+        totalH += TEAM_HEADER_H;
+        totalH += collapsed ? SUMMARY_ROW_H : team.members.length * ROW_H;
+        totalH += TEAM_GAP;
+    }
+    totalH += BOTTOM_PAD;
+
+    canvas.width = chartW * dpr;
+    canvas.height = totalH * dpr;
+    canvas.style.width = chartW + 'px';
+    canvas.style.height = totalH + 'px';
+    ctx.scale(dpr, dpr);
+
+    const timeAreaW = chartW - LABEL_W;
+
+    function timeToX(timeStr) {
+        const parts = timeStr.split(':');
+        let h = parseInt(parts[0]) + parseInt(parts[1]) / 60;
+        if (h < hStart) h += 24;  // 跨天：00:00~07:59 映射到 24:00~31:59
+        return LABEL_W + ((h - hStart) / totalHours) * timeAreaW;
+    }
+
+    // ---------- 清空 ----------
+    ctx.clearRect(0, 0, chartW, totalH);
+
+    // ---------- 顶部时间轴 ----------
+    ctx.fillStyle = '#64748b';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    for (let h = hStart; h <= hEnd; h++) {
+        const x = LABEL_W + ((h - hStart) / totalHours) * timeAreaW;
+        const realH = h >= 24 ? h - 24 : h;
+        const label = String(realH).padStart(2, '0') + ':00' + (h >= 24 ? '+1' : '');
+        ctx.fillText(label, x, TOP_AXIS_H - 8);
+        // 24:00 分界线加粗高亮
+        if (h === 24) {
+            ctx.strokeStyle = 'rgba(248,113,113,0.3)';
+            ctx.setLineDash([]);
+            ctx.lineWidth = 1.5;
+        } else {
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.setLineDash([3, 3]);
+            ctx.lineWidth = 1;
+        }
+        ctx.beginPath();
+        ctx.moveTo(x, TOP_AXIS_H);
+        ctx.lineTo(x, totalH - BOTTOM_PAD);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+    }
+
+    // ---------- 逐班组绘制 ----------
+    let curY = TOP_AXIS_H;
+    const barRects = [];
+    const headerRects = [];  // 记录班组标题行区域，用于点击检测
+
+    data.teams.forEach((team, teamIdx) => {
+        const color = GANTT_COLORS[teamIdx % GANTT_COLORS.length];
+        const collapsed = !!_ganttCollapsed[team.team_name];
+
+        // ---- 班组标题行 ----
+        const headerY = curY;
+        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.fillRect(0, curY, chartW, TEAM_HEADER_H);
+
+        // 折叠/展开三角
+        const triX = 10, triCY = curY + TEAM_HEADER_H / 2;
+        ctx.fillStyle = '#64748b';
+        ctx.beginPath();
+        if (collapsed) {
+            // ▶ 右箭头
+            ctx.moveTo(triX, triCY - 5);
+            ctx.lineTo(triX + 8, triCY);
+            ctx.lineTo(triX, triCY + 5);
+        } else {
+            // ▼ 下箭头
+            ctx.moveTo(triX - 2, triCY - 3);
+            ctx.lineTo(triX + 6, triCY - 3);
+            ctx.lineTo(triX + 2, triCY + 4);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // 班组名
+        ctx.fillStyle = color;
+        ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${team.team_name} (${team.member_count}人)`, 24, curY + TEAM_HEADER_H - 9);
+
+        // 记录标题行
+        headerRects.push({
+            x: 0, y: headerY, w: chartW, h: TEAM_HEADER_H,
+            teamName: team.team_name
+        });
+
+        curY += TEAM_HEADER_H;
+
+        if (collapsed) {
+            // ======== 折叠态：绘制整点出勤汇总 ========
+            const summaryY = curY;
+            ctx.fillStyle = 'rgba(255,255,255,0.02)';
+            ctx.fillRect(LABEL_W, summaryY, timeAreaW, SUMMARY_ROW_H);
+
+            // 左侧标签
+            ctx.fillStyle = '#64748b';
+            ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('各时段人数', LABEL_W - 8, summaryY + SUMMARY_ROW_H / 2 + 3);
+
+            const hourly = team.hourly_summary || {};
+            // 收集所有有数据的整点，映射到连续轴（<8 的加 24）
+            const hourKeys = Object.keys(hourly).map(Number)
+                .map(h => ({ orig: h, mapped: h < hStart ? h + 24 : h }))
+                .filter(o => o.mapped >= hStart && o.mapped < hEnd)
+                .sort((a, b) => a.mapped - b.mapped);
+
+            if (hourKeys.length > 0) {
+                const maxVal = Math.max(...hourKeys.map(o => hourly[o.orig] || 0), 1);
+                const slotW = timeAreaW / totalHours;
+
+                hourKeys.forEach(o => {
+                    const h = o.mapped;
+                    const count = hourly[o.orig] || 0;
+                    if (count <= 0) return;
+                    const x = LABEL_W + ((h - hStart) / totalHours) * timeAreaW;
+                    // 柱高按比例，最大填满 SUMMARY_ROW_H - 6
+                    const maxBarH = SUMMARY_ROW_H - 8;
+                    const barH = Math.max((count / maxVal) * maxBarH, 4);
+                    const barY = summaryY + SUMMARY_ROW_H - 3 - barH;
+                    const barW = Math.max(slotW - 4, 8);
+                    const barX = x + 2;
+
+                    // 圆角小柱
+                    const rr = 2;
+                    ctx.fillStyle = color + '66';
+                    ctx.beginPath();
+                    ctx.moveTo(barX + rr, barY);
+                    ctx.lineTo(barX + barW - rr, barY);
+                    ctx.quadraticCurveTo(barX + barW, barY, barX + barW, barY + rr);
+                    ctx.lineTo(barX + barW, barY + barH - rr);
+                    ctx.quadraticCurveTo(barX + barW, barY + barH, barX + barW - rr, barY + barH);
+                    ctx.lineTo(barX + rr, barY + barH);
+                    ctx.quadraticCurveTo(barX, barY + barH, barX, barY + barH - rr);
+                    ctx.lineTo(barX, barY + rr);
+                    ctx.quadraticCurveTo(barX, barY, barX + rr, barY);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // 数字标签
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(String(count), barX + barW / 2, barY - 2);
+                });
+            } else {
+                ctx.fillStyle = '#475569';
+                ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无整点汇总', LABEL_W + timeAreaW / 2, summaryY + SUMMARY_ROW_H / 2 + 3);
+            }
+
+            curY += SUMMARY_ROW_H + TEAM_GAP;
+        } else {
+            // ======== 展开态：绘制每人明细 ========
+            team.members.forEach((member, mIdx) => {
+                const rowY = curY + mIdx * ROW_H;
+
+                if (mIdx % 2 === 0) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.015)';
+                    ctx.fillRect(LABEL_W, rowY, timeAreaW, ROW_H);
+                }
+
+                ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+                ctx.textAlign = 'right';
+if (member.is_temp) {
+                ctx.fillStyle = '#fbbf24';
+                } else {
+                ctx.fillStyle = '#94a3b8';
+                }
+                ctx.fillText(member.name, LABEL_W - 8, rowY + ROW_H / 2 + 4);
+
+                const x1 = timeToX(member.start);
+                const x2 = timeToX(member.end);
+                const barW = Math.max(x2 - x1, 3);
+                const barY = rowY + (ROW_H - BAR_H) / 2;
+
+                ctx.fillStyle = color + 'bb';
+                ctx.beginPath();
+                const r = 3;
+                ctx.moveTo(x1 + r, barY);
+                ctx.lineTo(x1 + barW - r, barY);
+                ctx.quadraticCurveTo(x1 + barW, barY, x1 + barW, barY + r);
+                ctx.lineTo(x1 + barW, barY + BAR_H - r);
+                ctx.quadraticCurveTo(x1 + barW, barY + BAR_H, x1 + barW - r, barY + BAR_H);
+                ctx.lineTo(x1 + r, barY + BAR_H);
+                ctx.quadraticCurveTo(x1, barY + BAR_H, x1, barY + BAR_H - r);
+                ctx.lineTo(x1, barY + r);
+                ctx.quadraticCurveTo(x1, barY, x1 + r, barY);
+                ctx.closePath();
+                ctx.fill();
+
+                if (barW > 70) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`${member.start}-${member.end}`, x1 + barW / 2, barY + BAR_H - 3);
+                }
+
+                barRects.push({
+                    x: x1, y: barY, w: barW, h: BAR_H,
+                    name: member.name, team: team.team_name,
+                    start: member.start, end: member.end, color
+                });
+            });
+
+            curY += team.members.length * ROW_H + TEAM_GAP;
+        }
+    });
+
+    // ---------- Tooltip ----------
+    if (!_ganttTooltip) {
+        _ganttTooltip = document.createElement('div');
+        Object.assign(_ganttTooltip.style, {
+            position: 'absolute', pointerEvents: 'none', display: 'none',
+            background: '#1e293b', border: '1px solid #334155',
+            borderRadius: '6px', padding: '6px 10px', fontSize: '0.78rem',
+            color: '#e2e8f0', zIndex: '100', whiteSpace: 'nowrap',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+        });
+        container.style.position = 'relative';
+        container.appendChild(_ganttTooltip);
+    }
+
+    // ---------- 鼠标移动 → tooltip ----------
+    canvas.onmousemove = function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left);
+        const my = (e.clientY - rect.top);
+
+        // 检测是否在班组标题行上（显示点击手势）
+        let onHeader = false;
+        for (const hr of headerRects) {
+            if (mx >= hr.x && mx <= hr.x + hr.w && my >= hr.y && my <= hr.y + hr.h) {
+                onHeader = true; break;
+            }
+        }
+
+        let hit = null;
+        for (const b of barRects) {
+            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+                hit = b; break;
+            }
+        }
+        if (hit) {
+            _ganttTooltip.innerHTML = `<span style="color:${hit.color};font-weight:bold">${hit.name}</span>` +
+                `<span style="color:#64748b;"> | ${hit.team}</span><br>` +
+                `<span style="color:#94a3b8;">上班 ${hit.start} → 下班 ${hit.end}</span>`;
+            _ganttTooltip.style.display = 'block';
+            _ganttTooltip.style.left = (mx + 14) + 'px';
+            _ganttTooltip.style.top = (my - 10) + 'px';
+            canvas.style.cursor = 'pointer';
+        } else {
+            _ganttTooltip.style.display = 'none';
+            canvas.style.cursor = onHeader ? 'pointer' : 'default';
+        }
+    };
+    canvas.onmouseleave = function() {
+        _ganttTooltip.style.display = 'none';
+        canvas.style.cursor = 'default';
+    };
+
+    // ---------- 点击班组标题行 → 切换折叠 ----------
+    canvas.onclick = function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left);
+        const my = (e.clientY - rect.top);
+        for (const hr of headerRects) {
+            if (mx >= hr.x && mx <= hr.x + hr.w && my >= hr.y && my <= hr.y + hr.h) {
+                _ganttCollapsed[hr.teamName] = !_ganttCollapsed[hr.teamName];
+                if (_ganttData) renderGantt(_ganttData);
+                return;
+            }
+        }
+    };
+}
+
+function formatHour(h) {
+    h = parseInt(h);
+    return String(h).padStart(2, '0') + ':00';
+}
+
+function getCellClass(val, q1, q2, q3) {
+    if (val <= 0) return 'cell-0';
+    if (val <= q1) return 'cell-1';
+    if (val <= q2) return 'cell-2';
+    if (val <= q3) return 'cell-3';
+    return 'cell-4';
+}
+
+async function doRefresh() {
+    const date = dateInput.value;
+    if (!date) { setStatus('请选择日期', 'err'); return; }
+
+    refreshBtn.disabled = true;
+    refreshBtn.classList.add('loading');
+    refreshBtn.textContent = '拉取中...';
+    setStatus('正在从 KLWMS 拉取考勤数据...', '');
+
+    try {
+        const resp = await fetch('/api/attendance/refresh?date=' + date, { method: 'POST' });
+        const result = await resp.json();
+
+        if (result.ok) {
+            setStatus(result.msg, 'ok');
+            loadData();
+        } else {
+            setStatus(result.msg, 'err');
+        }
+    } catch (e) {
+        setStatus('请求失败: ' + e.message, 'err');
+    } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('loading');
+        refreshBtn.textContent = '拉取考勤';
+    }
+}
+
+// 日期变更时重新加载
+dateInput.addEventListener('change', loadData);
+
+
+// ======================================================================
+//  班组配置管理（全员列表 + 行内编辑）
+// ======================================================================
+
+let _allTeams = [];  // 缓存班组名称列表，给行内 select 用
+
+// === 密码验证状态 ===
+let _isAuth = localStorage.getItem('wms_auth_valid') === 'true';
+let _pendingAuthAction = null;  // 暂存待执行的操作（密码验证通过后回调）
+
+function requireAuth(callback) {
+    if (_isAuth) { callback(); return; }
+    _pendingAuthAction = callback;
+    document.getElementById('authModal').classList.add('show');
+    const inp = document.getElementById('authPwdInput');
+    inp.value = '';
+    inp.focus();
+}
+
+function closeAuthModal() {
+    document.getElementById('authModal').classList.remove('show');
+    document.getElementById('authPwdInput').value = '';
+    _pendingAuthAction = null;
+}
+
+async function submitAuthLogin() {
+    const pwd = document.getElementById('authPwdInput').value;
+    if (!pwd) return;
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pwd })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            localStorage.setItem('wms_auth_valid', 'true');
+            _isAuth = true;
+            // 先保存暂存的回调引用（closeAuthModal 会清空它）
+            const action = _pendingAuthAction;
+            closeAuthModal();
+            setStatus('验证成功', 'ok');
+            if (action) {
+                action();
+            }
+        } else {
+            alert(data.msg);
+        }
+    } catch(e) {
+        alert('验证请求失败');
+    }
+}
+
+// 回车提交密码
+document.getElementById('authPwdInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') submitAuthLogin();
+});
+
+function toggleConfigPanel() {
+    const panel = document.getElementById('configPanel');
+    const btn = document.getElementById('toggleConfigBtn');
+    const isVisible = panel.classList.toggle('visible');
+    btn.textContent = isVisible ? '收起配置' : '展开配置';
+    btn.classList.toggle('active', isVisible);
+    if (isVisible) loadTeamMembers();
+}
+
+function loadTeamMembers() {
+_doLoadTeamMembers();
+}
+
+async function _doLoadTeamMembers() {
+    const search = document.getElementById('cfgSearch').value.trim();
+    const filterOrig = document.getElementById('cfgFilterOrig').value;
+    const filterTeam = document.getElementById('cfgFilterTeam').value;
+    const customOnly = document.getElementById('cfgCustomOnly').checked;
+
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (filterOrig) params.set('orig_team', filterOrig);
+    if (filterTeam) params.set('team', filterTeam);
+    if (customOnly) params.set('custom_only', 'true');
+
+    try {
+        const resp = await fetch('/api/attendance/team-members?' + params.toString());
+        const data = await resp.json();
+
+        // 更新原班组下拉
+        const filterOrigSel = document.getElementById('cfgFilterOrig');
+        const currentOrig = filterOrigSel.value;
+        const origTeams = data.orig_teams || [];
+        filterOrigSel.innerHTML = '<option value="">全部原班组</option>';
+        origTeams.forEach(t => {
+            filterOrigSel.innerHTML += `<option value="${t}" ${t === currentOrig ? 'selected' : ''}>${t}</option>`;
+        });
+
+        // 更新生效班组下拉
+        const filterSelect = document.getElementById('cfgFilterTeam');
+        const currentFilter = filterSelect.value;
+        const teams = data.teams || [];
+        _allTeams = teams;
+        filterSelect.innerHTML = '<option value="">全部生效班组</option>';
+        teams.forEach(t => {
+            filterSelect.innerHTML += `<option value="${t}" ${t === currentFilter ? 'selected' : ''}>${t}</option>`;
+        });
+
+        // 统计信息
+        const customCount = data.items.filter(i => i.is_custom).length;
+        document.getElementById('cfgCount').textContent =
+            `共 ${data.total} 人，当前显示 ${data.filtered} 人，${customCount} 人已自定义`;
+
+        // 渲染表格
+        const body = document.getElementById('configBody');
+        const items = data.items || [];
+
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#64748b;padding:24px;">无匹配人员</td></tr>';
+            return;
+        }
+
+        body.innerHTML = items.map(m => {
+            const rowCls = m.is_custom ? 'is-custom' : '';
+            const origTeam = m.original_team || '<span style="color:#475569;">无</span>';
+
+            // 生效班组列：显示当前值 + 标记
+            let effectiveHtml;
+            if (m.is_custom) {
+                effectiveHtml = `${m.effective_team}<span class="badge-custom">已修改</span>`;
+            } else {
+                effectiveHtml = `${m.effective_team}<span class="badge-orig">原始</span>`;
+            }
+
+            // 操作列：下拉选择 + 保存 + 恢复
+            const teamOptions = _allTeams.map(t =>
+                `<option value="${t}" ${t === m.effective_team ? 'selected' : ''}>${t}</option>`
+            ).join('');
+            const resetBtn = m.is_custom
+                ? `<button class="reset-btn" onclick="resetTeamConfig('${m.name}')">恢复</button>`
+                : '';
+
+            const tempBadge = m.is_temp ? '<span class="badge-temp">临</span>' : '';
+
+            return `<tr class="${rowCls}">
+                <td>${m.name}${tempBadge}</td>
+                <td style="color:#94a3b8;">${origTeam}</td>
+                <td>
+                    <select class="edit-select" id="sel_${m.name}" onchange="onTeamSelectChange('${m.name}')">
+                        ${teamOptions}
+                        <option value="__custom__">✏️ 自定义...</option>
+                    </select>
+                    <input class="edit-input" id="inp_${m.name}" style="display:none;" placeholder="输入班组名">
+                </td>
+                <td>
+                    <button class="save-btn" onclick="saveTeamConfig('${m.name}')">保存</button>
+                    ${resetBtn}
+                </td>
+            </tr>`;
+        }).join('');
+
+    } catch (e) {
+        console.error('加载人员班组失败:', e);
+    }
+}
+
+function onTeamSelectChange(name) {
+    const sel = document.getElementById('sel_' + name);
+    const inp = document.getElementById('inp_' + name);
+    if (sel.value === '__custom__') {
+        inp.style.display = 'inline-block';
+        inp.focus();
+    } else {
+        inp.style.display = 'none';
+    }
+}
+
+function _updateRowAfterSave(name, newTeam) {
+    // 局部更新当前行，不重新拉全量列表
+    const row = document.getElementById('sel_' + name)?.closest('tr');
+    if (!row) return;
+    row.classList.add('is-custom');
+    // 更新下拉选中值
+    const sel = document.getElementById('sel_' + name);
+    if (sel) {
+        // 如果是新班组名，追加到下拉选项
+        let found = false;
+        for (const opt of sel.options) { if (opt.value === newTeam) { found = true; break; } }
+        if (!found && newTeam !== '__custom__') {
+            const opt = document.createElement('option');
+            opt.value = newTeam; opt.textContent = newTeam;
+            sel.insertBefore(opt, sel.querySelector('option[value="__custom__"]'));
+        }
+        sel.value = newTeam;
+    }
+    const inp = document.getElementById('inp_' + name);
+    if (inp) inp.style.display = 'none';
+    // 确保恢复按钮存在
+    const tdOp = row.querySelector('td:last-child');
+    if (tdOp && !tdOp.querySelector('.reset-btn')) {
+        const btn = document.createElement('button');
+        btn.className = 'reset-btn';
+        btn.textContent = '恢复';
+        btn.onclick = function() { resetTeamConfig(name); };
+        tdOp.appendChild(btn);
+    }
+    // 更新统计
+    const countEl = document.getElementById('cfgCount');
+    if (countEl) {
+        const rows = document.querySelectorAll('#configBody tr.is-custom');
+        countEl.textContent = countEl.textContent.replace(/\d+ 人已自定义/, rows.length + ' 人已自定义');
+    }
+}
+
+function _updateRowAfterReset(name, origTeam) {
+    const row = document.getElementById('sel_' + name)?.closest('tr');
+    if (!row) return;
+    row.classList.remove('is-custom');
+    const sel = document.getElementById('sel_' + name);
+    if (sel && origTeam) sel.value = origTeam;
+    // 移除恢复按钮
+    const resetBtn = row.querySelector('.reset-btn');
+    if (resetBtn) resetBtn.remove();
+    // 更新统计
+    const countEl = document.getElementById('cfgCount');
+    if (countEl) {
+        const rows = document.querySelectorAll('#configBody tr.is-custom');
+        countEl.textContent = countEl.textContent.replace(/\d+ 人已自定义/, rows.length + ' 人已自定义');
+    }
+}
+
+function saveTeamConfig(name) {
+    requireAuth(async function() {
+        const sel = document.getElementById('sel_' + name);
+        const inp = document.getElementById('inp_' + name);
+        let teamName = sel.value;
+
+        if (teamName === '__custom__') {
+            teamName = inp.value.trim();
+            if (!teamName) {
+                alert('请输入自定义班组名称');
+                inp.focus();
+                return;
+            }
+        }
+
+        try {
+            const resp = await fetch('/api/attendance/team-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, team_name: teamName })
+            });
+            const result = await resp.json();
+            if (result.ok) {
+                setStatus(result.msg, 'ok');
+                _updateRowAfterSave(name, teamName);
+            } else {
+                alert(result.msg);
+            }
+        } catch (e) {
+            alert('保存失败: ' + e.message);
+        }
+    });
+}
+
+function resetTeamConfig(name) {
+    requireAuth(function() {
+        if (!confirm(`确定恢复 "${name}" 为原始班组？`)) return;
+
+        (async function() {
+            try {
+                const resp = await fetch('/api/attendance/team-config?name=' + encodeURIComponent(name), {
+                    method: 'DELETE'
+                });
+                const result = await resp.json();
+                if (result.ok) {
+                    setStatus(result.msg, 'ok');
+                    const sel = document.getElementById('sel_' + name);
+                    // 恢复到原班组（取当前行的原班组列文字）
+                    const row = sel?.closest('tr');
+                    const origTd = row?.querySelector('td:nth-child(2)');
+                    const origTeam = origTd?.textContent?.trim() || '';
+                    _updateRowAfterReset(name, origTeam);
+                } else {
+                    alert(result.msg);
+                }
+            } catch (e) {
+                alert('恢复失败: ' + e.message);
+            }
+        })();
+    });
+}
+
+// ======================================================================
+//  Excel 批量导入班组配置
+// ======================================================================
+
+async function resetAllTeams() {
+    requireAuth(async function() {
+        if (!confirm('确定清除所有自定义班组配置？\n全员将恢复为系统原班组。')) return;
+        const btn = document.getElementById('resetAllTeamsBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ 恢复中...';
+        try {
+            const resp = await fetch('/api/attendance/team-config/reset-all', { method: 'POST' });
+            const data = await resp.json();
+            if (data.ok) {
+                alert(data.msg);
+                loadTeamMembers();
+            } else {
+                alert('恢复失败：' + (data.msg || '未知错误'));
+            }
+        } catch(e) {
+            alert('请求失败：' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '↩ 一键恢复原班组';
+        }
+    });
+}
+
+async function syncSystemTeams() {
+    requireAuth(async function() {
+        const btn = document.getElementById('syncSystemTeamsBtn');
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ 同步中...';
+        try {
+            const resp = await fetch('/api/attendance/sync-system-teams', { method: 'POST' });
+            const data = await resp.json();
+            if (data.ok) {
+                // 展示同步结果
+                let msg = data.msg;
+                if (data.team_counts) {
+                    const teams = Object.entries(data.team_counts)
+                        .map(([t, n]) => `${t}(${n}人)`).join('、');
+                    msg += `\n\n系统班组：${teams}`;
+                }
+                alert(msg);
+                loadTeamMembers();  // 刷新列表
+            } else {
+                alert('同步失败：' + (data.msg || '未知错误'));
+            }
+        } catch(e) {
+            alert('同步请求失败：' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = origText;
+        }
+    });
+}
+
+function triggerImportExcel() {
+    requireAuth(function() {
+        document.getElementById('importFileInput').click();
+    });
+}
+
+async function handleImportFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';  // 允许重复选同一文件
+
+    try {
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+        if (rows.length < 2) {
+            alert('Excel 至少需要标题行 + 1 行数据');
+            return;
+        }
+
+        // 自动匹配列：找"姓名"和"班组"列
+        const header = rows[0].map(String);
+        let nameCol = header.findIndex(h => h.includes('姓名'));
+        let teamCol = header.findIndex(h => h.includes('班组'));
+        if (nameCol === -1) nameCol = 0;
+        if (teamCol === -1) teamCol = 1;
+
+        const members = [];
+        for (let i = 1; i < rows.length; i++) {
+            const name = String(rows[i][nameCol] || '').trim();
+            const team = String(rows[i][teamCol] || '').trim();
+            if (name && team) members.push({ name, team_name: team });
+        }
+
+        if (!members.length) {
+            alert('未解析到有效数据（需要"姓名"和"班组"列）');
+            return;
+        }
+
+        if (!confirm(`解析到 ${members.length} 条记录，确认覆盖导入？\n\n前 5 条预览：\n` +
+            members.slice(0, 5).map(m => `  ${m.name} → ${m.team_name}`).join('\n') +
+            (members.length > 5 ? '\n  ...' : ''))) {
+            return;
+        }
+
+        const resp = await fetch('/api/attendance/team-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ members })
+        });
+        const result = await resp.json();
+        if (result.ok) {
+            setStatus(result.msg, 'ok');
+            _doLoadTeamMembers();
+        } else {
+            alert(result.msg);
+        }
+    } catch (err) {
+        alert('解析 Excel 失败: ' + err.message);
+    }
+}
+
+// ======================================================================
+//  导出今日出勤明细
+// ======================================================================
+
+async function exportAttendanceDetail() {
+    const date = dateInput.value;
+    if (!date) { alert('请先选择日期'); return; }
+
+    setStatus('正在导出...', '');
+    try {
+        const resp = await fetch('/api/attendance/export?date=' + date);
+        const data = await resp.json();
+
+        if (!data.items || !data.items.length) {
+            alert('该日暂无出勤数据，请先拉取考勤');
+            setStatus('', '');
+            return;
+        }
+
+        // 构建 Excel 数据
+        const header = ['姓名', '班组', '是否临时工', '上班时间', '下班时间', '出勤时长'];
+        const rows = data.items.map(m => [
+            m.name,
+            m.team,
+            m.is_temp ? '是' : '否',
+            m.start,
+            m.end,
+            m.duration
+        ]);
+
+        const wsData = [header, ...rows];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        // 设置列宽
+        ws['!cols'] = [
+            { wch: 10 }, { wch: 14 }, { wch: 10 },
+            { wch: 10 }, { wch: 10 }, { wch: 10 }
+        ];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '出勤明细');
+        XLSX.writeFile(wb, `出勤明细_${date}.xlsx`);
+        setStatus('导出完成', 'ok');
+    } catch (e) {
+        setStatus('导出失败: ' + e.message, 'err');
+    }
+}
+</script>
+</body>
+</html>

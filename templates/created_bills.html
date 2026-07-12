@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>待拣已生成储位拣货子任务列表</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📋</text></svg>">
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/base.css" rel="stylesheet">
+    <style>
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 固定顶部区域 */
+        .fixed-top-area {
+            flex-shrink: 0;
+            padding: 0 var(--spacing-page) 0 var(--spacing-page);
+            background: var(--dark-bg);
+        }
+
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 12px;
+        }
+        .page-header h2 { margin: 0; font-size: 1.15rem; font-weight: 700; }
+        .page-header .header-stats {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-left: 18px;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+        }
+        .page-header .header-stats .stat-val {
+            font-weight: 700;
+            margin-left: 3px;
+        }
+        .page-header .header-stats .stat-val.c-blue { color: var(--accent-blue); }
+        .page-header .header-stats .stat-val.c-purple { color: var(--accent-purple); }
+        .page-header .header-stats .stat-val.c-orange { color: var(--accent-orange); }
+        .page-header .header-stats .stat-val.c-green { color: var(--accent-green); }
+        .page-header .header-stats .stat-breakdown { font-size: 0.85em; color: var(--text-secondary); margin-left: 4px; }
+        .page-header .header-stats .stat-breakdown .c-orange { color: var(--accent-orange); font-weight: 600; }
+        .page-header .header-stats .stat-breakdown .c-purple { color: var(--accent-purple); font-weight: 600; }
+        .page-header .header-stats .stat-breakdown .c-gray { color: #999; font-weight: 600; }
+
+        /* 总览卡片区 */
+        .overview-wrapper {
+            position: relative;
+            margin-bottom: 12px;
+        }
+        .overview-cards {
+            display: flex;
+            gap: 10px;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            padding-right: 60px;
+        }
+        .overview-more {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 4px;
+            display: flex;
+            align-items: center;
+            padding: 0 4px 0 16px;
+            background: linear-gradient(to right, transparent, var(--dark-bg) 40%);
+            font-size: 0.72rem;
+            color: #64748b;
+            pointer-events: none;
+        }
+        .overview-more.hidden { display: none; }
+        .wh-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 6px 12px;
+            min-width: fit-content;
+            font-size: 0.76rem;
+            flex-shrink: 0;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+        .wh-card:hover { border-color: var(--accent-blue); box-shadow: var(--shadow-glow-blue); }
+        .wh-card.expanded { min-width: 180px; }
+        .wh-card .wh-expand-icon {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 0.68rem;
+            color: #475569;
+            transition: transform 0.2s;
+        }
+        .wh-card.expanded .wh-expand-icon { transform: rotate(90deg); }
+
+        /* 卡片内用统一grid对齐 */
+        .wh-card-grid {
+            display: grid;
+            grid-template-columns: auto auto auto;
+            gap: 2px 10px;
+            align-items: center;
+            white-space: nowrap;
+        }
+        .wh-card-grid .wh-name {
+            font-weight: 700;
+            font-size: 0.78rem;
+            color: var(--accent-blue);
+        }
+        .wh-card-grid .val-purple { color: var(--accent-purple); font-weight: 600; text-align: right; }
+        .wh-card-grid .val-orange { color: var(--accent-orange); font-weight: 600; text-align: right; }
+        .wh-card-grid .wave-label { color: #64748b; font-size: 0.72rem; }
+        .wh-card-grid .wave-row { display: contents; }
+        .wh-card-grid .wave-rows {
+            display: contents;
+        }
+        .wh-card-grid .detail-separator {
+            grid-column: 1 / -1;
+            height: 1px;
+            background: rgba(255,255,255,0.06);
+            margin: 3px 0;
+        }
+        /* 折叠时隐藏明细行 */
+        .wh-card .wave-detail-rows { display: none; }
+        .wh-card.expanded .wave-detail-rows { display: contents; }
+
+        /* 可滚动表格区域 */
+        .scroll-area {
+            flex: 1;
+            overflow: hidden;
+            padding: 0 var(--spacing-page) var(--spacing-page) var(--spacing-page);
+        }
+
+        /* 双列布局 */
+        .dual-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            height: 100%;
+        }
+        @media (max-width: 900px) {
+            .dual-columns { grid-template-columns: 1fr; }
+        }
+        .column-panel {
+            background: var(--card-bg);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: border-color var(--transition-normal);
+        }
+        .column-panel:hover { border-color: var(--border-medium); }
+        .column-header {
+            padding: 8px 14px;
+            font-size: 0.88rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .column-header .count {
+            font-size: 0.76rem;
+            font-weight: 400;
+            opacity: 0.7;
+        }
+        .col-feeding .column-header {
+            background: rgba(168,85,247,0.1);
+            color: var(--accent-purple);
+            border-bottom: 2px solid rgba(168,85,247,0.3);
+        }
+        .col-seasoning .column-header {
+            background: rgba(255,152,0,0.1);
+            color: var(--accent-orange);
+            border-bottom: 2px solid rgba(255,152,0,0.3);
+        }
+
+        .column-thead {
+            flex-shrink: 0;
+        }
+        .column-thead table { margin-bottom: 0; }
+        .column-thead th {
+            padding: 4px 10px;
+            text-align: left;
+            font-weight: 600;
+            color: #94a3b8;
+            font-size: 0.73rem;
+            background: var(--card-bg);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            vertical-align: middle;
+        }
+        .column-thead th .th-name {
+            white-space: nowrap;
+            margin-right: 4px;
+        }
+        .column-thead th input,
+        .column-thead th select {
+            background: var(--dark-bg);
+            color: var(--text-main);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 0.7rem;
+            box-sizing: border-box;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .column-thead th select {
+            background: var(--dark-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 6px center;
+            padding-right: 18px;
+        }
+        .column-thead th select option {
+            background: var(--dark-bg);
+            color: var(--text-main);
+        }
+        .column-thead th input:focus,
+        .column-thead th select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 1px rgba(0,198,255,0.2);
+        }
+        .column-thead th input::placeholder { color: #475569; }
+
+        .column-body {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.78rem; table-layout: fixed; }
+        table col:nth-child(1) { width: 34%; }
+        table col:nth-child(2) { width: 22%; }
+        table col:nth-child(3) { width: 14%; }
+        table col:nth-child(4) { width: 16%; }
+        table col:nth-child(5) { width: 14%; }
+
+        tbody td {
+            padding: 6px 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+        /* 波次分隔标题 - 独立div，sticky固定 */
+        .wave-divider {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            padding: 6px 10px;
+            font-weight: 700;
+            font-size: 0.76rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            cursor: pointer;
+            user-select: none;
+            background: var(--card-bg);
+        }
+        .wave-divider:hover { opacity: 0.8; }
+        .wave-divider .toggle-icon {
+            display: inline-block;
+            transition: transform 0.2s;
+            margin-right: 4px;
+        }
+        .wave-divider.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .wave-divider.lc { color: #ff9800; background: #2a1f0e; }
+        .wave-divider.sw { color: #00c6ff; background: #0b1e2a; }
+        .wave-divider.xw { color: #00e676; background: #0b2a1a; }
+
+        /* 波次行底色 */
+        tr.wave-row-lc { background: rgba(255,152,0,0.04); }
+        tr.wave-row-sw { background: rgba(0,198,255,0.04); }
+        tr.wave-row-xw { background: rgba(0,230,118,0.04); }
+        tr.wave-row-lc:hover { background: rgba(255,152,0,0.1); }
+        tr.wave-row-sw:hover { background: rgba(0,198,255,0.1); }
+        tr.wave-row-xw:hover { background: rgba(0,230,118,0.1); }
+
+        /* 折叠隐藏 */
+        .wave-hidden { display: none; }
+        .wave-table { margin-bottom: 0; }
+
+        .bill-link {
+            color: var(--accent-blue); text-decoration: none; font-weight: 500; cursor: pointer;
+            transition: color var(--transition-fast);
+        }
+        .bill-link:hover { text-decoration: underline; color: #7dd3fc; }
+
+.empty-col { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 0.85rem; }
+
+/* 移动端适配 - 手机 */
+@media (max-width: 768px) {
+    .fixed-top-area { padding: 10px 12px; }
+    .wh-card { padding: 10px; gap: 8px; }
+    .bill-link { padding: 8px 0; min-height: 44px; display: flex; align-items: center; }
+    .column-header { padding: 8px 12px; font-size: 0.82rem; }
+}
+@media (max-width: 480px) {
+    .fixed-top-area { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+    .dual-columns { gap: 10px; }
+    .column-panel { border-radius: var(--radius-sm); }
+    .column-header { font-size: 0.78rem; padding: 6px 10px; }
+    .bill-link { font-size: 0.78rem; }
+    .wh-card { border-radius: var(--radius-sm); }
+    .page-body { padding: 10px; }
+    .empty-col { padding: 30px 16px; font-size: 0.8rem; }
+}
+</style>
+</head>
+<body>
+    <!-- 固定顶部 -->
+    <div class="fixed-top-area">
+        <div class="page-header">
+            <h2>📋 待拣已生成储位拣货子任务列表</h2>
+            <div class="header-stats" id="headerStats" style="display:none;"></div>
+            <a href="/dashboard" class="btn-back">← 返回监控</a>
+        </div>
+        <!-- 各仓总览卡片 -->
+        <div class="overview-wrapper" id="overviewWrapper" style="display:none;">
+            <div class="overview-cards" id="overviewCards"></div>
+            <div class="overview-more hidden" id="overviewMore"></div>
+        </div>
+    </div>
+
+    <!-- 可滚动区域 -->
+    <div class="scroll-area">
+        <div class="loading-state" id="loadingState">
+            <div class="spinner"></div>
+            <div>正在获取数据...</div>
+        </div>
+
+        <div class="dual-columns" id="dualColumns" style="display:none;">
+            <!-- 左列：上料 -->
+            <div class="column-panel col-feeding">
+                <div class="column-header">
+                    <span>上料逻辑区</span>
+                    <span class="count" id="feedingCount">0 条</span>
+                </div>
+                <div class="column-thead">
+                    <table>
+                        <colgroup><col><col><col><col><col></colgroup>
+                        <thead><tr>
+                            <th><span class="th-name">子任务号</span><input type="text" id="filterBillNo_feeding" placeholder="搜索..."></th>
+                            <th><span class="th-name">所属仓</span><select id="filterWh_feeding"><option value="all">全部</option></select></th>
+                            <th><span class="th-name">波次</span><select id="filterWave_feeding"><option value="all">全部</option><option value="凌晨达">凌晨达</option><option value="上午达">上午达</option><option value="下午达">下午达</option></select></th>
+                            <th><span class="th-name">打印时间</span></th>
+                            <th><span class="th-name">件数</span></th>
+                        </tr></thead>
+                    </table>
+                </div>
+                <div class="column-body" id="feedingBody"></div>
+            </div>
+            <!-- 右列：米面 -->
+            <div class="column-panel col-seasoning">
+                <div class="column-header">
+                    <span>米面逻辑区</span>
+                    <span class="count" id="seasoningCount">0 条</span>
+                </div>
+                <div class="column-thead">
+                    <table>
+                        <colgroup><col><col><col><col><col></colgroup>
+                        <thead><tr>
+                            <th><span class="th-name">子任务号</span><input type="text" id="filterBillNo_seasoning" placeholder="搜索..."></th>
+                            <th><span class="th-name">所属仓</span><select id="filterWh_seasoning"><option value="all">全部</option></select></th>
+                            <th><span class="th-name">波次</span><select id="filterWave_seasoning"><option value="all">全部</option><option value="凌晨达">凌晨达</option><option value="上午达">上午达</option><option value="下午达">下午达</option></select></th>
+                            <th><span class="th-name">打印时间</span></th>
+                            <th><span class="th-name">件数</span></th>
+                        </tr></thead>
+                    </table>
+                </div>
+                <div class="column-body" id="seasoningBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/auth_check.js"></script>
+    <script>
+    (function() {
+        let allBills = [];
+        const collapsedState = {};
+
+        const WAVE_ORDER = { '凌晨达': 0, '上午达': 1, '下午达': 2 };
+
+        function getWaveSort(waveName) {
+            if (!waveName) return 99;
+            for (const [key, val] of Object.entries(WAVE_ORDER)) {
+                if (waveName.includes(key)) return val;
+            }
+            return 99;
+        }
+
+        function getWaveRowClass(waveName) {
+            if (!waveName) return '';
+            if (waveName.includes('凌晨')) return 'wave-row-lc';
+            if (waveName.includes('上午')) return 'wave-row-sw';
+            if (waveName.includes('下午')) return 'wave-row-xw';
+            return '';
+        }
+
+        function getWaveDividerClass(waveName) {
+            if (waveName.includes('凌晨')) return 'lc';
+            if (waveName.includes('上午')) return 'sw';
+            if (waveName.includes('下午')) return 'xw';
+            return '';
+        }
+
+        function getSortTime(b) {
+            return b.createTime || '';
+        }
+
+        // ===== 逻辑区分组规则 =====
+        // 左列(feeding)：名字含"上料"或含"爆品饮料"(G4)；右列(seasoning)：名字含"米面"
+        function isFeedingArea(b) {
+            const name = b.logicAreaName || '';
+            return name.includes('上料') || name.includes('爆品饮料');
+        }
+        function isSeasoningArea(b) {
+            return (b.logicAreaName || '').includes('米面');
+        }
+        // 排除：既不是上料/G4也不是米面的逻辑区（如鸡蛋等）不展示
+        function isExcludedArea(b) {
+            return !isFeedingArea(b) && !isSeasoningArea(b);
+        }
+
+        // 渲染标题栏统计
+        function renderHeaderStats() {
+            const feedingBills = allBills.filter(b => isFeedingArea(b));
+            const seasoningBills = allBills.filter(b => isSeasoningArea(b));
+            const eggBills = allBills.filter(b => isExcludedArea(b));
+            const totalParcels = allBills.reduce((s, b) => s + (b.parcelQty || 0), 0);
+            const feedingParcels = feedingBills.reduce((s, b) => s + (b.parcelQty || 0), 0);
+            const seasoningParcels = seasoningBills.reduce((s, b) => s + (b.parcelQty || 0), 0);
+            const eggParcels = eggBills.reduce((s, b) => s + (b.parcelQty || 0), 0);
+            const totalTasks = allBills.length;
+            const el = document.getElementById('headerStats');
+            el.style.display = '';
+            el.innerHTML = `
+                <span>总件数<span class="stat-val c-green">${totalParcels}</span><span class="stat-breakdown">（米面<span class="c-orange">${seasoningParcels}</span>件、上料<span class="c-purple">${feedingParcels}</span>件、鸡蛋<span class="c-gray">${eggParcels}</span>件）</span></span>
+                <span>总任务<span class="stat-val c-blue">${totalTasks}</span><span class="stat-breakdown">（米面<span class="c-orange">${seasoningBills.length}</span>条、上料<span class="c-purple">${feedingBills.length}</span>条、鸡蛋<span class="c-gray">${eggBills.length}</span>条）</span></span>
+            `;
+        }
+
+        // 渲染总览卡片（按仓库维度汇总）
+        function renderOverview() {
+            const container = document.getElementById('overviewCards');
+            // 按仓库分组
+            const whMap = {};
+            for (const b of allBills) {
+                if (isExcludedArea(b)) continue;
+                const wh = b.bizBillName || '未知';
+                if (!whMap[wh]) whMap[wh] = { feeding: {}, seasoning: {} };
+                const wave = b.fulfillmentWaveName || '未知';
+                const area = isFeedingArea(b) ? 'feeding' : 'seasoning'; // 此处已排除非上料/米面
+                if (!whMap[wh][area][wave]) whMap[wh][area][wave] = 0;
+                whMap[wh][area][wave]++;
+            }
+
+            // 按仓库总数降序排
+            const whList = Object.entries(whMap).sort((a, b) => {
+                const totalA = Object.values(a[1].feeding).reduce((s, v) => s + v, 0) + Object.values(a[1].seasoning).reduce((s, v) => s + v, 0);
+                const totalB = Object.values(b[1].feeding).reduce((s, v) => s + v, 0) + Object.values(b[1].seasoning).reduce((s, v) => s + v, 0);
+                return totalB - totalA;
+            });
+
+            let html = '';
+            for (const [wh, data] of whList) {
+                const feedTotal = Object.values(data.feeding).reduce((s, v) => s + v, 0);
+                const seasTotal = Object.values(data.seasoning).reduce((s, v) => s + v, 0);
+                // 各波次明细
+                const allWaves = [...new Set([...Object.keys(data.feeding), ...Object.keys(data.seasoning)])];
+                allWaves.sort((a, b) => {
+                    const waveOrder = { '凌晨达': 0, '上午达': 1, '下午达': 2 };
+                    const getOrder = (w) => { for (const [k,v] of Object.entries(waveOrder)) { if (w.includes(k)) return v; } return 99; };
+                    return getOrder(a) - getOrder(b);
+                });
+                let detailRows = '';
+                for (const w of allWaves) {
+                    const f = data.feeding[w] || 0;
+                    const s = data.seasoning[w] || 0;
+                    detailRows += `<span class="wave-label">${w}</span><span class="val-purple">上料:${f}</span><span class="val-orange">调料:${s}</span>`;
+                }
+                html += `<div class="wh-card">
+                    <div class="wh-card-grid">
+                        <span class="wh-name">${wh}<span class="wh-expand-icon">▸</span></span>
+                        <span class="val-purple">上料:${feedTotal}</span>
+                        <span class="val-orange">调料:${seasTotal}</span>
+                        <span class="wave-detail-rows">
+                            <span class="detail-separator"></span>
+                            ${detailRows}
+                        </span>
+                    </div>
+                </div>`;
+            }
+            container.innerHTML = html;
+            const wrapper = document.getElementById('overviewWrapper');
+            wrapper.style.display = whList.length > 0 ? '' : 'none';
+
+            // 绑定卡片展开/收起
+            container.querySelectorAll('.wh-card').forEach(card => {
+                card.addEventListener('click', function(e) {
+                    this.classList.toggle('expanded');
+                    // 重新检测溢出
+                    requestAnimationFrame(checkOverflow);
+                });
+            });
+
+            // 检测溢出，显示"还有N个仓"提示
+            requestAnimationFrame(() => {
+                checkOverflow();
+                container.addEventListener('scroll', checkOverflow);
+            });
+        }
+
+        function checkOverflow() {
+            const container = document.getElementById('overviewCards');
+            const moreEl = document.getElementById('overviewMore');
+            const isOverflow = container.scrollWidth > container.clientWidth;
+            if (!isOverflow) {
+                moreEl.classList.add('hidden');
+                return;
+            }
+            // 计算右侧不可见的卡片数
+            const cards = container.querySelectorAll('.wh-card');
+            const containerRight = container.getBoundingClientRect().right;
+            let hiddenCount = 0;
+            cards.forEach(card => {
+                if (card.getBoundingClientRect().right > containerRight - 10) {
+                    hiddenCount++;
+                }
+            });
+            // 滚到底了就隐藏
+            const atEnd = container.scrollLeft + container.clientWidth >= container.scrollWidth - 5;
+            if (atEnd || hiddenCount === 0) {
+                moreEl.classList.add('hidden');
+            } else {
+                moreEl.classList.remove('hidden');
+                moreEl.textContent = `+${hiddenCount}仓 →`;
+            }
+        }
+
+        let isFirstLoad = true;
+
+        async function fetchBills() {
+            try {
+                const res = await fetch('/api/created_bills');
+                const json = await res.json();
+                if (!json.ok) {
+                    if (isFirstLoad) {
+                        document.getElementById('loadingState').innerHTML = '<div style="color:#ff5252;">加载失败</div>';
+                    }
+                    return;
+                }
+                allBills = json.data || [];
+
+                // 填充仓库筛选（两列各自的）— 仅首次加载时填充
+                if (isFirstLoad) {
+                    const warehouses = [...new Set(allBills.map(b => b.bizBillName).filter(Boolean))].sort();
+                    ['filterWh_feeding', 'filterWh_seasoning'].forEach(id => {
+                        const sel = document.getElementById(id);
+                        warehouses.forEach(wh => {
+                            const opt = document.createElement('option');
+                            opt.value = wh;
+                            opt.textContent = wh;
+                            sel.appendChild(opt);
+                        });
+                    });
+                    document.getElementById('loadingState').style.display = 'none';
+                    document.getElementById('dualColumns').style.display = '';
+                    isFirstLoad = false;
+                } else {
+                    // 刷新时更新仓库筛选选项（保留当前选中值）
+                    const warehouses = [...new Set(allBills.map(b => b.bizBillName).filter(Boolean))].sort();
+                    ['filterWh_feeding', 'filterWh_seasoning'].forEach(id => {
+                        const sel = document.getElementById(id);
+                        const currentVal = sel.value;
+                        sel.innerHTML = '<option value="all">全部</option>';
+                        warehouses.forEach(wh => {
+                            const opt = document.createElement('option');
+                            opt.value = wh;
+                            opt.textContent = wh;
+                            sel.appendChild(opt);
+                        });
+                        sel.value = currentVal; // 恢复之前选中的值
+                    });
+                }
+
+                renderHeaderStats();
+                renderOverview();
+                renderTable();
+            } catch(e) {
+                if (isFirstLoad) {
+                    document.getElementById('loadingState').innerHTML = '<div style="color:#ff5252;">网络异常</div>';
+                }
+            }
+        }
+
+        function renderTable() {
+            // 左列筛选
+            const feedWaveFilter = document.getElementById('filterWave_feeding').value;
+            const feedWhFilter = document.getElementById('filterWh_feeding').value;
+            const feedBillFilter = document.getElementById('filterBillNo_feeding').value.trim().toLowerCase();
+
+            // 右列筛选
+            const seasWaveFilter = document.getElementById('filterWave_seasoning').value;
+            const seasWhFilter = document.getElementById('filterWh_seasoning').value;
+            const seasBillFilter = document.getElementById('filterBillNo_seasoning').value.trim().toLowerCase();
+
+            // 分组：含"上料"进左列，含"米面"进右列，其余（如鸡蛋）排除
+            const feedingAll = allBills.filter(b => isFeedingArea(b));
+            const seasoningAll = allBills.filter(b => isSeasoningArea(b));
+
+            // 各自筛选
+            const feedingBills = feedingAll.filter(b => {
+                if (feedWaveFilter !== 'all' && !(b.fulfillmentWaveName || '').includes(feedWaveFilter)) return false;
+                if (feedWhFilter !== 'all' && b.bizBillName !== feedWhFilter) return false;
+                if (feedBillFilter && !b.zonePickBillNo.toLowerCase().includes(feedBillFilter)) return false;
+                return true;
+            });
+            const seasoningBills = seasoningAll.filter(b => {
+                if (seasWaveFilter !== 'all' && !(b.fulfillmentWaveName || '').includes(seasWaveFilter)) return false;
+                if (seasWhFilter !== 'all' && b.bizBillName !== seasWhFilter) return false;
+                if (seasBillFilter && !b.zonePickBillNo.toLowerCase().includes(seasBillFilter)) return false;
+                return true;
+            });
+
+            // 排序：先波次，再时间升序
+            const sortBills = (a, b) => {
+                const waveA = getWaveSort(a.fulfillmentWaveName);
+                const waveB = getWaveSort(b.fulfillmentWaveName);
+                if (waveA !== waveB) return waveA - waveB;
+                const timeA = getSortTime(a);
+                const timeB = getSortTime(b);
+                if (timeA < timeB) return -1;
+                if (timeA > timeB) return 1;
+                return 0;
+            };
+            feedingBills.sort(sortBills);
+            seasoningBills.sort(sortBills);
+
+            document.getElementById('feedingCount').textContent = feedingBills.length + ' 条';
+            document.getElementById('seasoningCount').textContent = seasoningBills.length + ' 条';
+
+            renderColumn('feedingBody', feedingBills);
+            renderColumn('seasoningBody', seasoningBills);
+        }
+
+        function renderColumn(containerId, bills) {
+            const container = document.getElementById(containerId);
+            if (bills.length === 0) {
+                container.innerHTML = '<div class="empty-col">暂无数据</div>';
+                return;
+            }
+
+            // 按波次分组
+            const waveGroups = [];
+            let lastWave = null;
+            let currentGroup = null;
+            for (const b of bills) {
+                const wave = b.fulfillmentWaveName || '未知';
+                if (wave !== lastWave) {
+                    lastWave = wave;
+                    currentGroup = { wave, bills: [] };
+                    waveGroups.push(currentGroup);
+                }
+                currentGroup.bills.push(b);
+            }
+
+            let html = '';
+            for (const group of waveGroups) {
+                const divCls = getWaveDividerClass(group.wave);
+                const stateKey = `${containerId}_${group.wave}`;
+                const isCollapsed = collapsedState[stateKey] || false;
+                const collapsedCls = isCollapsed ? 'collapsed' : '';
+                // 波次标题 - 独立div，sticky
+                html += `<div class="wave-divider ${divCls} ${collapsedCls}" data-wave="${group.wave}" data-container="${containerId}">
+                    <span class="toggle-icon">▾</span>${group.wave}（${group.bills.length}条）
+                </div>`;
+                // 该波次的任务table
+                const hiddenCls = isCollapsed ? 'wave-hidden' : '';
+                html += `<table class="wave-table ${hiddenCls}" data-wave-group="${group.wave}" data-container-group="${containerId}">`;
+                html += '<colgroup><col><col><col><col><col></colgroup><tbody>';
+                for (const b of group.bills) {
+                    const rowCls = getWaveRowClass(group.wave);
+                    const displayTime = b.createTime || '-';
+                    const timeDisplay = displayTime !== '-' ? displayTime.slice(11, 19) : '-';
+                    const detailUrl = `/task_detail?` + new URLSearchParams({
+                        zonePickBillNo: b.zonePickBillNo || '',
+                        allotInWarehouseId: b.allotInWarehouseId || '',
+                        appointmentTime: b.appointmentDate || '',
+                        logicAreaName: b.logicAreaName || '',
+                    }).toString();
+                    const billCell = `<a class="bill-link" href="${detailUrl}" target="_blank" title="查看包裹明细">${b.zonePickBillNo}</a>`;
+                    html += `<tr class="${rowCls}">
+                        <td>${billCell}</td>
+                        <td>${b.bizBillName || '-'}</td>
+                        <td>${group.wave}</td>
+                        <td>${timeDisplay}</td>
+                        <td>${b.parcelQty || 0}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table>';
+            }
+
+            container.innerHTML = html;
+
+            // 绑定折叠事件
+            container.querySelectorAll('.wave-divider').forEach(divider => {
+                divider.addEventListener('click', function() {
+                    const wave = this.dataset.wave;
+                    const cId = this.dataset.container;
+                    const stateKey = `${cId}_${wave}`;
+                    collapsedState[stateKey] = !collapsedState[stateKey];
+                    this.classList.toggle('collapsed');
+                    const tables = container.querySelectorAll(`table[data-wave-group="${wave}"][data-container-group="${cId}"]`);
+                    tables.forEach(t => t.classList.toggle('wave-hidden'));
+                });
+            });
+        }
+
+        // 左列筛选事件
+        document.getElementById('filterWave_feeding').addEventListener('change', renderTable);
+        document.getElementById('filterWh_feeding').addEventListener('change', renderTable);
+        document.getElementById('filterBillNo_feeding').addEventListener('input', renderTable);
+
+        // 右列筛选事件
+        document.getElementById('filterWave_seasoning').addEventListener('change', renderTable);
+        document.getElementById('filterWh_seasoning').addEventListener('change', renderTable);
+        document.getElementById('filterBillNo_seasoning').addEventListener('input', renderTable);
+
+        fetchBills();
+        // 每30秒自动刷新数据
+        setInterval(fetchBills, 30000);
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+/* 统一滚动条样式 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+@page { size: 70mm 48mm; margin: 0; }
+body {
+    width: 70mm;
+    height: 48mm;
+    font-family: "SimHei", "Heiti SC", "Microsoft YaHei", sans-serif;
+    background: white;
+    color: black;
+    overflow: hidden;
+}
+.label {
+    width: 70mm;
+    height: 48mm;
+    padding: 1.5mm 2mm;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* === 顶部区域：区域号 + 站区路线 + 二维码 === */
+.top-section {
+    display: flex;
+    align-items: flex-start;
+    height: 12mm;
+    border-bottom: 0.3mm solid black;
+    padding-bottom: 1mm;
+}
+.area-code {
+    font-size: 10mm;
+    font-weight: 900;
+    line-height: 1;
+    margin-right: 2mm;
+}
+.station-route {
+    font-size: 8mm;
+    font-weight: 700;
+    line-height: 1;
+    padding-top: 1mm;
+}
+.top-qr {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.top-qr canvas, .top-qr img {
+    width: 10mm;
+    height: 10mm;
+}
+.top-qr .wh-tag {
+    font-size: 2mm;
+    margin-top: 0.3mm;
+    text-align: center;
+}
+
+/* === 信息行 === */
+.info-line {
+    font-size: 2.5mm;
+    line-height: 1.4;
+    padding: 0.5mm 0;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* === SKU区域 === */
+.sku-section {
+    display: flex;
+    align-items: flex-start;
+    padding: 1mm 0;
+    min-height: 10mm;
+    border-bottom: 0.3mm solid black;
+}
+.sku-name {
+    flex: 1;
+    font-size: 3.5mm;
+    font-weight: 700;
+    line-height: 1.4;
+    word-break: break-all;
+    overflow: hidden;
+    max-height: 10mm;
+}
+.pkg-no-side {
+    width: 18mm;
+    font-size: 2.2mm;
+    text-align: right;
+    padding-left: 1mm;
+    word-break: break-all;
+    line-height: 1.5;
+    color: #333;
+}
+
+/* === 底部区域 === */
+.bottom-section {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+.bottom-left {
+    flex: 0 0 30mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-right: 0.3mm solid black;
+    padding: 1mm;
+}
+.category-name {
+    font-size: 3.5mm;
+    font-weight: 700;
+    margin-bottom: 1mm;
+}
+.bottom-qr {
+    display: flex;
+    align-items: center;
+    gap: 1.5mm;
+}
+.bottom-qr canvas, .bottom-qr img {
+    width: 9mm;
+    height: 9mm;
+}
+.phone-text {
+    font-size: 2mm;
+    color: #333;
+}
+
+.bottom-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1mm;
+}
+.poi-serial {
+    font-size: 12mm;
+    font-weight: 900;
+    line-height: 1;
+}
+.count-text {
+    font-size: 3mm;
+    margin-top: 1.5mm;
+    color: #333;
+}
+.wave-tag {
+    font-size: 2.5mm;
+    font-weight: 700;
+    position: absolute;
+    bottom: 1.5mm;
+    right: 2mm;
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+</head>
+<body>
+<div class="label">
+    <!-- 顶部：区域 + 站区路线 + 二维码 -->
+    <div class="top-section">
+        <span class="area-code">{{areaNo}}</span>
+        <span class="station-route">{{stationAreaNo}}  {{stationRouteSeq}}</span>
+        <div class="top-qr">
+            <canvas id="qr-top" width="60" height="60"></canvas>
+            <span class="wh-tag">{{warehouseShortName}}</span>
+        </div>
+    </div>
+
+    <!-- 信息行 -->
+    <div class="info-line">{{warehouseShortName}}|{{orderNo}}|{{customerName}}</div>
+
+    <!-- SKU + 包裹号 -->
+    <div class="sku-section">
+        <div class="sku-name">{{skuFullName}}</div>
+        <div class="pkg-no-side">{{packageNo}}</div>
+    </div>
+
+    <!-- 底部 -->
+    <div class="bottom-section">
+        <div class="bottom-left">
+            <div class="category-name">{{transportCategoryAbbr}}</div>
+            <div class="bottom-qr">
+                <canvas id="qr-bottom" width="54" height="54"></canvas>
+                <span class="phone-text">{{phoneString}}</span>
+            </div>
+        </div>
+        <div class="bottom-right">
+            <div class="poi-serial">{{poiSerialCode}}</div>
+            <div class="count-text">{{index}}/{{total}}</div>
+        </div>
+    </div>
+
+    <div class="wave-tag">[{{fulfillmentWaveShortName}}]</div>
+</div>
+
+<script>
+function renderQR(canvasId, data) {
+    if (!data || data.startsWith('{{')) return;
+    var qr = qrcode(0, 'L');
+    qr.addData(data);
+    qr.make();
+    var canvas = document.getElementById(canvasId);
+    var ctx = canvas.getContext('2d');
+    var size = canvas.width;
+    var cellSize = size / qr.getModuleCount();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#000000';
+    for (var r = 0; r < qr.getModuleCount(); r++) {
+        for (var c = 0; c < qr.getModuleCount(); c++) {
+            if (qr.isDark(r, c)) {
+                ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+            }
+        }
+    }
+}
+renderQR('qr-top', '{{packageNo}}');
+renderQR('qr-bottom', '{{qrCodeContent}}');
+</script>
+</body>
+</html>

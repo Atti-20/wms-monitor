@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拣货人员权限检查</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔑</text></svg>">
+    <link href="/static/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/base.css" rel="stylesheet">
+    <style>
+        body {
+            background: var(--dark-bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: var(--spacing-page);
+        }
+
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding: 0 4px;
+        }
+        .page-header h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin: 0;
+        }
+        .page-header h1 span {
+            font-size: 0.82rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-left: 12px;
+        }
+
+        .btn-check-now {
+            padding: 10px 24px;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: var(--accent-blue);
+            color: #0c1929;
+            font-weight: 600;
+            font-size: 0.88rem;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-check-now:hover {
+            box-shadow: var(--shadow-glow-blue);
+            transform: translateY(-1px);
+        }
+        .btn-check-now:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .btn-check-now .spinner {
+            display: none;
+            width: 16px; height: 16px;
+            border: 2px solid rgba(12,25,41,0.3);
+            border-top-color: #0c1929;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        .btn-check-now.loading .spinner { display: inline-block; }
+        .btn-check-now.loading .btn-text { display: none; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* 概览卡片 */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .summary-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 18px 16px;
+            text-align: center;
+        }
+        .summary-card .label {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+        .summary-card .value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .summary-card.blue .value { color: var(--accent-blue); }
+        .summary-card.green .value { color: var(--accent-green); }
+        .summary-card.orange .value { color: var(--accent-orange); }
+        .summary-card.red .value { color: var(--danger); }
+        .summary-card.gray .value { color: var(--text-secondary); }
+
+        /* 明细表格 */
+        .table-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .table-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 0.92rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .table-header .time-info {
+            font-size: 0.78rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+        }
+        thead th {
+            padding: 10px 14px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-subtle);
+            background: var(--surface-2);
+            white-space: nowrap;
+        }
+        tbody td {
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-main);
+        }
+        tbody tr:hover {
+            background: var(--surface-3);
+        }
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* 状态标签 */
+        .status-tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: var(--radius-xs);
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-tag.ok {
+            background: var(--accent-green-dim);
+            color: var(--accent-green);
+        }
+        .status-tag.fixed {
+            background: var(--accent-blue-dim);
+            color: var(--accent-blue);
+        }
+        .status-tag.fix_failed {
+            background: var(--danger-dim);
+            color: var(--danger);
+        }
+        .status-tag.skipped, .status-tag.error {
+            background: var(--accent-orange-dim);
+            color: var(--accent-orange);
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
+        .empty-state .title { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: var(--text-secondary); }
+        .empty-state .desc { font-size: 0.85rem; }
+
+        /* 筛选标签 */
+        .filter-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .filter-tab {
+            padding: 6px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 0.78rem;
+            cursor: pointer;
+            border: 1px solid var(--border-medium);
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all var(--transition-fast);
+        }
+        .filter-tab:hover { background: var(--surface-3); color: var(--text-main); }
+        .filter-tab.active {
+            background: var(--accent-blue-dim);
+            color: var(--accent-blue);
+            border-color: var(--accent-blue);
+        }
+        .filter-tab .count {
+            margin-left: 4px;
+            opacity: 0.7;
+        }
+
+
+        /* 认证状态 */
+        .auth-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding: 10px 16px;
+            background: var(--surface-2);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            font-size: 0.82rem;
+        }
+        .auth-bar.locked { border-color: var(--accent-orange); background: rgba(255,152,0,0.06); }
+        .auth-bar.unlocked { border-color: var(--accent-green); background: rgba(76,175,80,0.06); }
+        .auth-bar .auth-label { color: var(--text-secondary); }
+        .auth-bar .auth-action {
+            margin-left: auto;
+            padding: 4px 14px;
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--accent-blue);
+            background: transparent;
+            color: var(--accent-blue);
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+        .auth-bar .auth-action:hover {
+            background: var(--accent-blue);
+            color: var(--surface-3);
+        }
+
+        /* 密码弹窗 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-md);
+            padding: 28px 24px;
+            width: 320px;
+            max-width: 90vw;
+        }
+        .modal-box h3 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 0 0 16px;
+        }
+        .modal-box input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-xs);
+            background: var(--surface-2);
+            color: var(--text-main);
+            font-size: 0.88rem;
+            margin-bottom: 14px;
+            box-sizing: border-box;
+        }
+        .modal-box input:focus { outline: none; border-color: var(--accent-blue); }
+        .modal-btns {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .modal-btns button {
+            padding: 8px 20px;
+            border-radius: var(--radius-xs);
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+        }
+        .modal-btns .btn-cancel {
+            background: var(--surface-3);
+            color: var(--text-secondary);
+        }
+        .modal-btns .btn-confirm {
+            background: var(--accent-blue);
+            color: #0c1929;
+        }
+
+        @media (max-width: 768px) {
+            .page-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+            .summary-grid { grid-template-columns: repeat(2, 1fr); }
+            table { font-size: 0.75rem; }
+            thead th, tbody td { padding: 8px 10px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 认证状态栏 -->
+    <div class="auth-bar locked" id="authBar">
+        <span class="auth-label">🔒 权限操作需要认证，请先登录</span>
+        <button class="auth-action" id="authBtn" onclick="toggleAuth()">登录</button>
+        <a href="/dashboard" style="font-size:0.78rem; padding:4px 10px; border-radius:5px; color:#94a3b8; border:1px solid #334155; text-decoration:none; background:rgba(255,255,255,0.04); transition:all 0.2s; margin-left:4px;">← 返回监控</a>
+    </div>
+
+    <!-- 密码弹窗 -->
+    <div class="modal-overlay" id="authModal">
+        <div class="modal-box">
+            <h3>🔐 输入访问密码</h3>
+            <input type="password" id="authPwd" placeholder="请输入密码" onkeydown="if(event.key==='Enter')submitAuth()">
+            <div class="modal-btns">
+                <button class="btn-cancel" onclick="closeAuthModal()">取消</button>
+                <button class="btn-confirm" onclick="submitAuth()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-header">
+        <h1>🔑 拣货人员权限检查 <span>自动检测并补开 GXJHSM（共享拣货扫码）权限</span></h1>
+        <button class="btn-check-now" id="checkBtn" onclick="triggerCheck()">
+            <span class="spinner"></span>
+            <span class="btn-text">立即检查</span>
+        </button>
+    </div>
+
+    <!-- 概览卡片 -->
+    <div class="summary-grid" id="summaryGrid" style="display:none;">
+        <div class="summary-card blue">
+            <div class="label">检查总人数</div>
+            <div class="value" id="totalWorkers">-</div>
+        </div>
+        <div class="summary-card green">
+            <div class="label">权限正常</div>
+            <div class="value" id="alreadyOk">-</div>
+        </div>
+        <div class="summary-card orange">
+            <div class="label">已自动补开</div>
+            <div class="value" id="fixed">-</div>
+        </div>
+        <div class="summary-card red">
+            <div class="label">补开失败</div>
+            <div class="value" id="fixFailed">-</div>
+        </div>
+        <div class="summary-card gray">
+            <div class="label">跳过</div>
+            <div class="value" id="skipped">-</div>
+        </div>
+    </div>
+
+    <!-- 筛选标签 -->
+    <div class="filter-tabs" id="filterTabs" style="display:none;">
+        <button class="filter-tab active" data-filter="all">全部 <span class="count" id="filterAll"></span></button>
+        <button class="filter-tab" data-filter="ok">正常 <span class="count" id="filterOk"></span></button>
+        <button class="filter-tab" data-filter="fixed">已补开 <span class="count" id="filterFixed"></span></button>
+        <button class="filter-tab" data-filter="fix_failed">失败 <span class="count" id="filterFailed"></span></button>
+        <button class="filter-tab" data-filter="skipped">跳过 <span class="count" id="filterSkipped"></span></button>
+    </div>
+
+    <!-- 明细表格 -->
+    <div class="table-container" id="tableContainer" style="display:none;">
+        <div class="table-header">
+            检查明细
+            <span class="time-info" id="checkTime"></span>
+        </div>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>姓名</th>
+                        <th>状态</th>
+                        <th>已有权限</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody id="detailBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 空状态 -->
+    <div class="empty-state" id="emptyState">
+        <div class="icon">🔑</div>
+        <div class="title">暂无检查记录</div>
+        <div class="desc">点击"立即检查"按钮，对当前活跃拣货人员进行权限检查与自动补开</div>
+    </div>
+
+    <script>
+    (function() {
+        let currentData = null;
+        let currentFilter = 'all';
+        let pollTimer = null;
+        let isAuthenticated = localStorage.getItem('wms_auth_valid') === 'true';
+
+        // ===== 认证逻辑 =====
+        function updateAuthUI() {
+            const bar = document.getElementById('authBar');
+            const btn = document.getElementById('authBtn');
+            const checkBtn = document.getElementById('checkBtn');
+            if (isAuthenticated) {
+                bar.className = 'auth-bar unlocked';
+                bar.querySelector('.auth-label').innerHTML = '🔓 已认证，可执行权限检查与补开操作';
+                btn.textContent = '退出登录';
+                checkBtn.disabled = false;
+                checkBtn.title = '';
+            } else {
+                bar.className = 'auth-bar locked';
+                bar.querySelector('.auth-label').innerHTML = '🔒 权限操作需要认证，请先登录';
+                btn.textContent = '登录';
+                checkBtn.disabled = true;
+                checkBtn.title = '请先登录后再操作';
+            }
+        }
+
+        window.toggleAuth = function() {
+            if (isAuthenticated) {
+                isAuthenticated = false;
+                localStorage.removeItem('wms_auth_valid');
+                updateAuthUI();
+            } else {
+                document.getElementById('authModal').classList.add('show');
+                document.getElementById('authPwd').value = '';
+                setTimeout(() => document.getElementById('authPwd').focus(), 100);
+            }
+        };
+
+        window.closeAuthModal = function() {
+            document.getElementById('authModal').classList.remove('show');
+        };
+
+        window.submitAuth = async function() {
+            const pwd = document.getElementById('authPwd').value;
+            if (!pwd) return;
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwd })
+                });
+                const json = await res.json();
+                if (json.ok) {
+                    isAuthenticated = true;
+                    localStorage.setItem('wms_auth_valid', 'true');
+                    closeAuthModal();
+                    updateAuthUI();
+                } else {
+                    alert(json.msg || '密码错误');
+                }
+            } catch(e) {
+                alert('请求失败: ' + e.message);
+            }
+        };
+
+        updateAuthUI();
+
+        const STATUS_LABELS = {
+            'ok': '正常',
+            'fixed': '已补开',
+            'fix_failed': '补开失败',
+            'skipped': '跳过',
+            'error': '异常'
+        };
+
+        // 页面加载时获取上次结果
+        loadLastResult();
+
+        async function loadLastResult() {
+            try {
+                const res = await fetch('/api/permission/last_result');
+                const json = await res.json();
+                if (json.ok && json.data) {
+                    currentData = json.data;
+                    renderResult(currentData);
+                }
+            } catch(e) {
+                console.error('加载上次结果失败:', e);
+            }
+        }
+
+        window.triggerCheck = async function() {
+            if (!isAuthenticated) {
+                toggleAuth();
+                return;
+            }
+            const btn = document.getElementById('checkBtn');
+            btn.classList.add('loading');
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/permission/check', {
+                    method: 'POST',
+                    headers: { 'X-Auth-Token': '888888' }
+                });
+                const json = await res.json();
+                if (json.ok) {
+                    // 开始轮询状态
+                    startPolling();
+                } else {
+                    alert(json.msg);
+                    btn.classList.remove('loading');
+                    btn.disabled = false;
+                }
+            } catch(e) {
+                alert('请求失败: ' + e.message);
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
+        };
+
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(async () => {
+                try {
+                    const statusRes = await fetch('/api/permission/status');
+                    const statusJson = await statusRes.json();
+                    if (!statusJson.running) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                        const btn = document.getElementById('checkBtn');
+                        btn.classList.remove('loading');
+                        btn.disabled = false;
+                        // 获取最新结果
+                        await loadLastResult();
+                    }
+                } catch(e) {}
+            }, 2000);
+        }
+
+        function renderResult(data) {
+            if (!data || !data.details) return;
+
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('summaryGrid').style.display = '';
+            document.getElementById('filterTabs').style.display = '';
+            document.getElementById('tableContainer').style.display = '';
+
+            // 概览
+            document.getElementById('totalWorkers').textContent = data.checked || 0;
+            document.getElementById('alreadyOk').textContent = data.already_ok || 0;
+            document.getElementById('fixed').textContent = data.fixed || 0;
+            document.getElementById('fixFailed').textContent = data.fix_failed || 0;
+            document.getElementById('skipped').textContent = data.skipped || 0;
+
+            // 筛选计数
+            document.getElementById('filterAll').textContent = data.details.length;
+            document.getElementById('filterOk').textContent = data.already_ok || 0;
+            document.getElementById('filterFixed').textContent = data.fixed || 0;
+            document.getElementById('filterFailed').textContent = data.fix_failed || 0;
+            document.getElementById('filterSkipped').textContent = (data.skipped || 0);
+
+            // 检查时间
+            document.getElementById('checkTime').textContent = '检查时间: ' + (data.check_time || '-');
+
+            renderTable(data.details, currentFilter);
+        }
+
+        function renderTable(details, filter) {
+            const tbody = document.getElementById('detailBody');
+            const filtered = filter === 'all'
+                ? details
+                : details.filter(d => d.status === filter || (filter === 'skipped' && d.status === 'error'));
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:30px;">无匹配记录</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = filtered.map((d, i) => {
+                const perms = (d.existing_permissions || []).join(', ') || '-';
+                const statusClass = d.status || 'skipped';
+                const statusText = STATUS_LABELS[d.status] || d.status;
+                return `<tr>
+                    <td>${i + 1}</td>
+                    <td>${d.name}</td>
+                    <td><span class="status-tag ${statusClass}">${statusText}</span></td>
+                    <td style="font-size:0.75rem;color:var(--text-secondary);max-width:300px;word-break:break-all;">${perms}</td>
+                    <td style="font-size:0.78rem;color:var(--text-secondary);">${d.message || '-'}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // 筛选标签点击
+        document.getElementById('filterTabs').addEventListener('click', function(e) {
+            const tab = e.target.closest('.filter-tab');
+            if (!tab) return;
+            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentFilter = tab.dataset.filter;
+            if (currentData) renderTable(currentData.details, currentFilter);
+        });
+
+        // 检查是否正在执行
+        (async function checkRunning() {
+            try {
+                const res = await fetch('/api/permission/status');
+                const json = await res.json();
+                if (json.running) {
+                    const btn = document.getElementById('checkBtn');
+                    btn.classList.add('loading');
+                    btn.disabled = true;
+                    startPolling();
+                }
+            } catch(e) {}
+        })();
+    })();
+    </script>
+</body>
+</html>
