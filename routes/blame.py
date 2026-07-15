@@ -11,9 +11,18 @@ from pathlib import Path
 from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime, timedelta
 from token_manager import get_access_token
-from spiders.base import request_with_retry, get_shared_session
+from spiders.base import request_with_retry, get_shared_session, WAREHOUSES, DEFAULT_WAREHOUSE_ID
 
 bp = Blueprint('blame', __name__)
+
+
+def _req_warehouse_id():
+    """从请求参数中获取仓库ID（客户端级别，不影响全局状态）"""
+    wh_id = request.args.get('warehouseId', '').strip()
+    if wh_id and wh_id in WAREHOUSES:
+        return wh_id
+    return DEFAULT_WAREHOUSE_ID
+
 
 # ============================================================
 # SKU 级别拣货时间缓存（从下载目录的导出xlsx文件解析）
@@ -164,9 +173,11 @@ def _short_team(name):
     return (s + suffix) or name
 
 
-def _get_sku_price(session, sku_code, warehouse_id="428"):
+def _get_sku_price(session, sku_code, warehouse_id=None):
     """通过报损单/报溢单接口获取SKU售价"""
     try:
+        if warehouse_id is None:
+            warehouse_id = DEFAULT_WAREHOUSE_ID
         now = datetime.now()
         start = (now - timedelta(days=365)).strftime("%Y-%m-%d 00:00:00")
         end = now.strftime("%Y-%m-%d 23:59:59")
@@ -295,8 +306,8 @@ def blame_query():
 
     try:
         base_params = {
-            "warehouseId": "428",
-            "wareHouseId": "428",
+            "warehouseId": wh_id,
+            "wareHouseId": wh_id,
         }
 
         # 1. 查包裹（包裹号模式跳过此步）
@@ -523,14 +534,14 @@ def blame_query():
                             pick_time_str = None
 
         # 辅助函数：查询人员班组/类型信息（warehouse_id 指定查哪个仓的人员名单）
-        def _get_person_type_info(person_name, warehouse_id="428"):
+        def _get_person_type_info(person_name, warehouse_id=None):
             if not person_name:
                 return ""
             try:
                 user_params = {
                     "name": person_name,
                     "warehouseValidity": "EFFECTIVE",
-                    "warehouseIdList": str(warehouse_id),
+                    "warehouseIdList": str(warehouse_id or wh_id),
                     "jobStatus": "INCUMBENCY",
                     "pageNo": 1,
                     "pageSize": 20,
@@ -555,7 +566,7 @@ def blame_query():
             return ""
 
         # 查询拣货人员类型（固定工/临时工）及班组信息
-        picker_type_info = _get_person_type_info(handler_name)
+        picker_type_info = _get_person_type_info(handler_name, wh_id)
 
         # 4. 查子明细
         params4 = {**base_params, "pickBillNo": zone_pick_bill_no, "pageNo": 1, "pageSize": 100}
@@ -651,7 +662,7 @@ def blame_query():
 
         # 查询复核人员班组信息（复核人在凤岗仓428工作）
         if checker_name:
-            checker_type_info = _get_person_type_info(checker_name)
+            checker_type_info = _get_person_type_info(checker_name, wh_id)
 
         return jsonify({
             "ok": True,
@@ -812,7 +823,7 @@ def sku_location_search():
     brand_keyword = request.args.get('skuBrand', '').strip()
     order_sku_code = request.args.get('orderSkuCode', '').strip()
     stock_date = request.args.get('date', '').strip()
-    warehouse_id = "428"
+    warehouse_id = _req_warehouse_id()
 
     if not keyword and not brand_keyword:
         return jsonify({"ok": False, "msg": "请输入商品名称或品牌关键字"})

@@ -11,7 +11,7 @@ from spiders.picking import process_and_save
 from spiders.abnormal import fetch_abnormal_parcels
 from spiders.stagnant import check_picking_stagnant
 from token_manager import TOKEN_STATUS, get_access_token
-from spiders.base import get_logical_date
+from spiders.base import get_logical_date, DEFAULT_WAREHOUSE_ID
 
 # ===== 统一定时任务：按需启动 =====
 _processing_lock = threading.Lock()
@@ -80,15 +80,21 @@ def unified_sync():
                 return
 
         _sync_counter += 1
-        process_and_save()
-        check_picking_stagnant()
-        if _sync_counter % 10 == 0:
-            fetch_abnormal_parcels()
+        # 遍历所有仓库采集数据，每个仓库写入独立的数据库文件
+        from spiders.base import WAREHOUSES
+        for wh_id in WAREHOUSES:
+            try:
+                process_and_save(warehouse_id=wh_id)
+                check_picking_stagnant(warehouse_id=wh_id)
+                if _sync_counter % 10 == 0:
+                    fetch_abnormal_parcels(warehouse_id=wh_id)
+            except Exception as e:
+                print(f"[数据引擎] 仓库 {wh_id} 采集异常: {e}")
 
         # 每轮检查：全部拣货/调拨任务完成时自动停止
         # 条件：pickStatus=picking 为0 且 pickStatus=created 为0 且 调拨单CREATED 为0 且 已拣>0
         try:
-            conn = database.get_db()
+            conn = database.get_db(DEFAULT_WAREHOUSE_ID)
             c = conn.cursor()
             c.execute("SELECT value FROM kv_store WHERE key = 'pick_status_picking_count'")
             row = c.fetchone()
@@ -108,7 +114,7 @@ def unified_sync():
             if all_done and _auto_mode:
                 logical_date = get_logical_date()
                 # 全部完成，先生成当日总结
-                c2 = database.get_db().cursor()
+                c2 = database.get_db(DEFAULT_WAREHOUSE_ID).cursor()
                 c2.execute('SELECT SUM(total_count) FROM worker_realtime')
                 total = c2.fetchone()[0] or 0
                 c2.connection.close()
@@ -128,7 +134,7 @@ def unified_sync():
             now = datetime.now()
             if 2 <= now.hour <= 3:
                 logical_date = get_logical_date()
-                conn = database.get_db()
+                conn = database.get_db(DEFAULT_WAREHOUSE_ID)
                 c = conn.cursor()
                 c.execute('SELECT SUM(total_count) FROM worker_realtime')
                 total = c.fetchone()[0] or 0
@@ -142,8 +148,8 @@ def unified_sync():
 
 
 def generate_picking_summary(today, total_picked):
-    """生成今日拣货总结"""
-    conn = database.get_db()
+    """生成今日拣货总结（基于主仓库数据）"""
+    conn = database.get_db(DEFAULT_WAREHOUSE_ID)
     c = conn.cursor()
     c.execute('''
         SELECT name, team_name, is_new_staff, total_count, feeding_area_count, 
@@ -226,7 +232,7 @@ def _backfill_today_on_startup():
     logical_date_str = logical_today_dt.strftime("%Y-%m-%d")
 
     # 检查今天已有多少快照
-    conn = database.get_db()
+    conn = database.get_db(DEFAULT_WAREHOUSE_ID)
     c = conn.cursor()
     c.execute('SELECT COUNT(*) FROM picking_progress_snapshot WHERE logical_date = ?', (logical_date_str,))
     existing_count = c.fetchone()[0]
@@ -262,7 +268,7 @@ def _backfill_today_on_startup():
 
         snapshots = snapshots_by_date[logical_date_str]
         # 只回填 18:00~01:20 范围内的时段，且不覆盖已有数据
-        conn = database.get_db()
+        conn = database.get_db(DEFAULT_WAREHOUSE_ID)
         c = conn.cursor()
         filled_count = 0
         for slot, picked in snapshots.items():
@@ -310,16 +316,18 @@ def _startup_auto_activate():
 
 # ===== 每天 19:05 抓取销售预测 =====
 def _fetch_daily_forecast():
-    """定时抓取深圳凤岗仓今日销售预测值"""
-    try:
-        from spiders.forecast import fetch_forecast
-        result = fetch_forecast()
-        if result:
-            print(f"[数据引擎] 销售预测抓取成功: {result} 件")
-        else:
-            print("[数据引擎] 销售预测抓取失败，将在 19:15 重试")
-    except Exception as e:
-        print(f"[数据引擎] 销售预测抓取异常: {e}")
+    """定时抓取所有仓库今日销售预测值"""
+    from spiders.forecast import fetch_forecast
+    from spiders.base import WAREHOUSES
+    for wh_id in WAREHOUSES:
+        try:
+            result = fetch_forecast(warehouse_id=wh_id)
+            if result:
+                print(f"[数据引擎] 仓库{wh_id}销售预测抓取成功: {result} 件")
+            else:
+                print(f"[数据引擎] 仓库{wh_id}销售预测抓取失败")
+        except Exception as e:
+            print(f"[数据引擎] 仓库{wh_id}销售预测抓取异常: {e}")
 
 
 def _check_and_fetch_forecast():
@@ -334,20 +342,22 @@ def _check_and_fetch_forecast():
     if now.hour < 19 or (now.hour == 19 and now.minute < 5):
         return
     from spiders.forecast import get_tomorrow_forecast, fetch_forecast
+    from spiders.base import WAREHOUSES
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-    existing = get_tomorrow_forecast()
-    if existing is not None:
-        print(f"[数据引擎] 次日({tomorrow})预测数据已存在({existing}件)，跳过抓取")
-        return
-    print(f"[数据引擎] 次日({tomorrow})预测数据缺失，触发自动抓取...")
-    try:
-        result = fetch_forecast()
-        if result:
-            print(f"[数据引擎] 自动检测抓取成功: {tomorrow} = {result} 件")
-        else:
-            print(f"[数据引擎] 自动检测抓取失败，将在 30 分钟后重试")
-    except Exception as e:
-        print(f"[数据引擎] 自动检测抓取异常: {e}")
+    for wh_id in WAREHOUSES:
+        existing = get_tomorrow_forecast(warehouse_id=wh_id)
+        if existing is not None:
+            print(f"[数据引擎] 仓库{wh_id}次日({tomorrow})预测已存在({existing}件)，跳过")
+            continue
+        print(f"[数据引擎] 仓库{wh_id}次日({tomorrow})预测缺失，触发抓取...")
+        try:
+            result = fetch_forecast(warehouse_id=wh_id)
+            if result:
+                print(f"[数据引擎] 仓库{wh_id}自动抓取成功: {tomorrow} = {result} 件")
+            else:
+                print(f"[数据引擎] 仓库{wh_id}自动抓取失败，30分钟后重试")
+        except Exception as e:
+            print(f"[数据引擎] 仓库{wh_id}自动抓取异常: {e}")
 
 
 # ===== 每天 18:30 自动检查拣货人员权限 =====

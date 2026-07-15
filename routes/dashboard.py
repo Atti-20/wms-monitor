@@ -9,9 +9,17 @@ import io
 from flask import Blueprint, render_template, jsonify, request, Response
 from datetime import datetime, timedelta
 import database
-from spiders.base import get_logical_date
+from spiders.base import get_logical_date, get_warehouse_id, get_warehouse_name, WAREHOUSES, DEFAULT_WAREHOUSE_ID
 
 bp = Blueprint('dashboard', __name__)
+
+
+def _req_warehouse_id():
+    """从请求参数中获取仓库ID（客户端级别，不影响全局状态）"""
+    wh_id = request.args.get('warehouseId', '').strip()
+    if wh_id and wh_id in WAREHOUSES:
+        return wh_id
+    return DEFAULT_WAREHOUSE_ID
 
 
 def _short_team(name):
@@ -69,7 +77,8 @@ def dashboard_page():
 @bp.route('/api/dashboard')
 def dashboard_api():
     _get_activate_sync()()
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
 
     # 1. 查询人员实时明细
@@ -414,12 +423,15 @@ def dashboard_api():
         "allocation_created_count": allocation_created_count,
         "pick_status_picking_count": pick_status_picking_count,
         "pick_status_created_count": pick_status_created_count,
+        "warehouse_id": wh_id,
+        "warehouse_name": get_warehouse_name(wh_id),
     })
 
 
 @bp.route('/api/export_worker_data')
 def export_worker_data():
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     today = get_logical_date()
 
@@ -550,7 +562,8 @@ def export_worker_data():
 @bp.route('/api/picking_stagnant')
 def get_picking_stagnant():
     """查询当前未解除的拣货卡单（含员工班组/临时工标识）"""
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT s.id, s.record_time, s.handler_name, s.zone_pick_bill_no,
@@ -571,8 +584,9 @@ def get_picking_stagnant():
 @bp.route('/api/picking_stagnant/history')
 def get_picking_stagnant_history():
     """查询今日所有卡单记录（含已解除）"""
+    wh_id = _req_warehouse_id()
     today = get_logical_date()
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT id, record_time, handler_name, zone_pick_bill_no,
@@ -595,7 +609,8 @@ def exclude_worker():
     exclude = data.get('exclude', True)
     if not name:
         return jsonify({'ok': False, 'msg': '缺少人员姓名'}), 400
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('UPDATE worker_info_cache SET is_excluded = ? WHERE name = ?',
               (1 if exclude else 0, name))
@@ -612,9 +627,9 @@ def exclude_worker():
 @bp.route('/api/picking_in_progress')
 def api_picking_in_progress():
     """实时查询 klwms 拣货中(picking)的子任务列表，按人员分组统计进度"""
-    from spiders.base import request_with_retry, get_shared_session, WAREHOUSE_ID
+    from spiders.base import request_with_retry, get_shared_session
     from spiders.picking import FEEDING_AREAS, SEASONING_AREAS, TARGET_AREAS
-
+    wh_id = _req_warehouse_id()
     session = get_shared_session()
     logical_today = datetime.now() if datetime.now().hour >= 8 else datetime.now() - timedelta(days=1)
     today_date = logical_today.strftime("%Y-%m-%d")
@@ -629,8 +644,8 @@ def api_picking_in_progress():
         "deliveryRegionIds": "",
         "pageNo": 1,
         "pageSize": 1000,
-        "wareHouseId": WAREHOUSE_ID,
-        "warehouseId": WAREHOUSE_ID,
+        "wareHouseId": wh_id,
+        "warehouseId": wh_id,
     }
 
     res = request_with_retry(session, api_pick, params)
@@ -717,7 +732,8 @@ def api_picking_in_progress():
         })
 
     # 查询人员临时工标记
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     worker_names = list(worker_progress.keys())
     for name in worker_names:
@@ -787,8 +803,8 @@ def task_detail_page():
 @bp.route('/api/task_detail')
 def api_task_detail():
     """按 zonePickBillNo 查询该子任务的包裹打印列表"""
-    from spiders.base import request_with_retry, get_shared_session, WAREHOUSE_ID
-
+    from spiders.base import request_with_retry, get_shared_session
+    wh_id = _req_warehouse_id()
     zone_pick_bill_no = request.args.get('zonePickBillNo', '').strip()
     allot_in_wh_id = request.args.get('allotInWarehouseId', '').strip()
     appointment_time = request.args.get('appointmentTime', '').strip()
@@ -807,8 +823,8 @@ def api_task_detail():
         appointment_time = logical_today.strftime("%Y-%m-%d")
 
     params = {
-        "warehouseId": WAREHOUSE_ID,
-        "wareHouseId": WAREHOUSE_ID,
+        "warehouseId": wh_id,
+        "wareHouseId": wh_id,
         "appointmentTime": appointment_time,
         "allotInWarehouseId": allot_in_wh_id,
         "zonePickBillNo": zone_pick_bill_no,
@@ -848,8 +864,8 @@ def api_task_detail():
 @bp.route('/api/task_detail_parcels')
 def api_task_detail_parcels():
     """查询子任务的包裹 SKU 明细（通过 containerParcelPrintQuery）"""
-    from spiders.base import request_with_retry, get_shared_session, WAREHOUSE_ID
-
+    from spiders.base import request_with_retry, get_shared_session
+    wh_id = _req_warehouse_id()
     zone_pick_bill_no = request.args.get('zonePickBillNo', '').strip()
     allot_in_wh_id = request.args.get('allotInWarehouseId', '').strip()
     appointment_time = request.args.get('appointmentTime', '').strip()
@@ -868,8 +884,8 @@ def api_task_detail_parcels():
 
     # 第一步：通过 containerParcelPrintList 获取 containerPrintTaskNos
     list_params = {
-        "warehouseId": WAREHOUSE_ID,
-        "wareHouseId": WAREHOUSE_ID,
+        "warehouseId": wh_id,
+        "wareHouseId": wh_id,
         "appointmentTime": appointment_time,
         "allotInWarehouseId": allot_in_wh_id,
         "zonePickBillNo": zone_pick_bill_no,
@@ -901,8 +917,8 @@ def api_task_detail_parcels():
 
     # 第二步：通过 containerParcelPrintQuery 获取包裹明细
     query_params = {
-        "warehouseId": WAREHOUSE_ID,
-        "wareHouseId": WAREHOUSE_ID,
+        "warehouseId": wh_id,
+        "wareHouseId": wh_id,
         "allotInWarehouseId": allot_in_wh_id,
         "containerPrintTaskNos": task_nos,
         "labelPrintTiming": label_print_timing,
@@ -945,8 +961,8 @@ def api_task_detail_parcels():
 @bp.route('/api/created_bills')
 def api_created_bills():
     """实时查询 klwms 已生成(created)的拣货子任务列表"""
-    from spiders.base import request_with_retry, get_shared_session, WAREHOUSE_ID
-
+    from spiders.base import request_with_retry, get_shared_session
+    wh_id = _req_warehouse_id()
     session = get_shared_session()
     logical_today = datetime.now() if datetime.now().hour >= 8 else datetime.now() - timedelta(days=1)
     today_date = logical_today.strftime("%Y-%m-%d")
@@ -960,8 +976,8 @@ def api_created_bills():
         "deliveryRegionIds": "",
         "pageSize": 1000,
         "pickStatus": "created",
-        "wareHouseId": WAREHOUSE_ID,
-        "warehouseId": WAREHOUSE_ID,
+        "wareHouseId": wh_id,
+        "warehouseId": wh_id,
     }
 
     all_records = []
@@ -1032,7 +1048,7 @@ def api_created_bills():
         "data": bills,
         "total": len(bills),
         "appointmentTime": today_date,
-        "warehouseId": WAREHOUSE_ID,
+        "warehouseId": wh_id,
     })
 
 
@@ -1045,9 +1061,9 @@ def api_print_label():
     POST body: { zonePickBillNo: "DBJ...", allotInWarehouseId: "100",
                  appointmentTime: "2026-05-31", fulfillmentWaveId: "5" }
     """
-    from spiders.base import request_with_retry, get_shared_session, WAREHOUSE_ID
+    from spiders.base import request_with_retry, get_shared_session
     import label_printer
-
+    wh_id = _req_warehouse_id()
     data = request.get_json(force=True) if request.is_json else request.form.to_dict()
     task_nos = data.get('containerPrintTaskNos', '').strip()
     zone_pick_bill_no = data.get('zonePickBillNo', '').strip()
@@ -1066,8 +1082,8 @@ def api_print_label():
     label_print_timing = "BEFORE_PICKING"  # 默认值
     if not task_nos and zone_pick_bill_no:
         list_params = {
-            "warehouseId": WAREHOUSE_ID,
-            "wareHouseId": WAREHOUSE_ID,
+            "warehouseId": wh_id,
+            "wareHouseId": wh_id,
             "appointmentTime": appointment_time,
             "allotInWarehouseId": allot_in_wh_id,
             "zonePickBillNo": zone_pick_bill_no,
@@ -1095,8 +1111,8 @@ def api_print_label():
 
     # 调用 klwms API 获取打印数据
     params = {
-        "warehouseId": WAREHOUSE_ID,
-        "wareHouseId": WAREHOUSE_ID,
+        "warehouseId": wh_id,
+        "wareHouseId": wh_id,
         "allotInWarehouseId": allot_in_wh_id,
         "containerPrintTaskNos": task_nos,
         "labelPrintTiming": label_print_timing,
@@ -1381,9 +1397,9 @@ def api_printer_status():
 @bp.route('/api/preview_label')
 def api_preview_label():
     """预览标签（返回 PNG 图片）- 用于调试"""
-    from spiders.base import request_with_retry, get_shared_session, WAREHOUSE_ID
+    from spiders.base import request_with_retry, get_shared_session
     import label_printer
-
+    wh_id = _req_warehouse_id()
     task_nos = request.args.get('containerPrintTaskNos', '').strip()
     allot_in_wh_id = request.args.get('allotInWarehouseId', '').strip()
     appointment_time = request.args.get('appointmentTime', '').strip()
@@ -1398,8 +1414,8 @@ def api_preview_label():
 
     session = get_shared_session()
     params = {
-        "warehouseId": WAREHOUSE_ID,
-        "wareHouseId": WAREHOUSE_ID,
+        "warehouseId": wh_id,
+        "wareHouseId": wh_id,
         "allotInWarehouseId": allot_in_wh_id,
         "containerPrintTaskNos": task_nos,
         "labelPrintTiming": "BEFORE_PICKING",
@@ -1439,7 +1455,8 @@ def api_progress_history():
     分人：每人今日 total_count vs 历史7天日均 total_count。
     效率：总体平均效率、新员工平均效率、临时工平均效率。
     """
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
 
     now = datetime.now()

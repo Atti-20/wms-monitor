@@ -14,7 +14,7 @@ from datetime import datetime
 from collections import defaultdict
 
 import database
-from spiders.base import get_shared_session, request_with_retry, WAREHOUSE_ID
+from spiders.base import get_shared_session, request_with_retry, get_warehouse_id
 
 
 class AttendanceService:
@@ -182,7 +182,7 @@ class AttendanceService:
         while True:
             params = {
                 "warehouseValidity": "EFFECTIVE",
-                "warehouseId": WAREHOUSE_ID,
+                "warehouseId": get_warehouse_id(),
                 "labourUserName": "",
                 "labourUserMobile": "",
                 "attenceDate": year_month,

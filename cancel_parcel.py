@@ -13,8 +13,8 @@ from token_manager import get_access_token, PROXY_URL
 # ================= 配置参数 =================
 HTTP_TIMEOUT = 15
 PAGESIZE = 200
-# 统一使用 428 大仓 RDC 视角查询，确保品牌等字段完整
-MAIN_WAREHOUSE_ID = "428"
+# 主仓ID从统一配置获取，目标调拨仓固定为636清溪仓
+from spiders.base import get_warehouse_id
 ALLOT_IN_WAREHOUSE_ID = "636"
 
 
@@ -103,7 +103,7 @@ def get_cancelled_parcels(token, date):
     all_content = []
     while True:
         params = {
-            "warehouseId": MAIN_WAREHOUSE_ID,
+            "warehouseId": get_warehouse_id(),
             "appointmentTime": date,
             "allotInWarehouseId": ALLOT_IN_WAREHOUSE_ID,
             "skuName": "",
@@ -120,7 +120,7 @@ def get_cancelled_parcels(token, date):
             "asc": "true",
             "pageNo": page_no,
             "pageSize": PAGESIZE,
-            "wareHouseId": MAIN_WAREHOUSE_ID,
+            "wareHouseId": get_warehouse_id(),
         }
         original_url = f"https://klwms.meituan.com/haina/ojs/rdc/r/parcelList?{urlencode(params, doseq=True)}"
         try:
@@ -144,7 +144,7 @@ def get_turnover_parcels(token, date):
     all_items = []
     while True:
         params = {
-            "warehouseId": MAIN_WAREHOUSE_ID,
+            "warehouseId": get_warehouse_id(),
             "appointmentTime": date,
             "allotInWarehouseId": ALLOT_IN_WAREHOUSE_ID,
             "skuCode": "",
@@ -153,7 +153,7 @@ def get_turnover_parcels(token, date):
             "cancelParcelNo": "",
             "pageNo": page_no,
             "pageSize": PAGESIZE,
-            "wareHouseId": MAIN_WAREHOUSE_ID,
+            "wareHouseId": get_warehouse_id(),
         }
         original_url = f"https://klwms.meituan.com/haina/ojs/rdc/turnover/r/pageList?{urlencode(params, doseq=True)}"
         try:
@@ -178,8 +178,8 @@ def get_parcel_log(token, parcel_no):
     params = {
         "parcelNo": parcel_no,
         "allotInWarehouseId": ALLOT_IN_WAREHOUSE_ID,
-        "wareHouseId": MAIN_WAREHOUSE_ID,
-        "warehouseId": MAIN_WAREHOUSE_ID,
+        "wareHouseId": get_warehouse_id(),
+        "warehouseId": get_warehouse_id(),
     }
     original_url = f"https://klwms.meituan.com/haina/parcel/r/parcelLog?{urlencode(params, doseq=True)}"
     try:

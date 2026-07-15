@@ -3,10 +3,33 @@ import sqlite3
 import os
 import time
 
-DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wms_monitor.db')
+DB_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def get_db():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=20.0)
+# 旧的单一数据库路径（向后兼容，作为默认仓库428的数据库）
+DB_FILE = os.path.join(DB_DIR, 'wms_monitor.db')
+
+
+def _db_file_for(warehouse_id):
+    """按仓库ID返回独立的数据库文件路径"""
+    if warehouse_id is None or str(warehouse_id) == "428":
+        # 默认仓库使用原始数据库文件，保留历史数据
+        return DB_FILE
+    return os.path.join(DB_DIR, f'wms_monitor_{warehouse_id}.db')
+
+
+def get_db(warehouse_id=None):
+    """获取指定仓库的数据库连接。
+    
+    warehouse_id: 仓库ID字符串。
+        - None: 从 spiders.base.get_warehouse_id() 获取当前仓库（兼容旧代码）
+        - "428"/"636"/...: 使用指定仓库的独立数据库文件
+    """
+    if warehouse_id is None:
+        # 延迟导入避免循环依赖
+        from spiders.base import get_warehouse_id
+        warehouse_id = get_warehouse_id()
+    db_file = _db_file_for(warehouse_id)
+    conn = sqlite3.connect(db_file, check_same_thread=False, timeout=20.0)
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row
     return conn
@@ -58,8 +81,8 @@ def _safe_alter(c, conn, sql, success_msg=None):
         if "duplicate column name" not in str(e):
             print(f"⚠️ 字段迁移异常: {e}")
 
-def init_db():
-    conn = get_db()
+def init_db(warehouse_id=None):
+    conn = get_db(warehouse_id)
     c = conn.cursor()
 
     # 1. 员工实时状态表
@@ -337,11 +360,27 @@ def init_db():
     conn.commit()
     conn.close()
 
-if not os.path.exists(DB_FILE):
-    init_db()
-else:
-    # 确保新增表在已有数据库中存在
-    _conn = get_db()
+def init_all_warehouses():
+    """为所有已知仓库初始化数据库文件"""
+    # 延迟导入避免循环依赖
+    try:
+        from spiders.base import WAREHOUSES
+        warehouse_ids = list(WAREHOUSES.keys())
+    except ImportError:
+        warehouse_ids = ["428"]
+    for wh_id in warehouse_ids:
+        db_file = _db_file_for(wh_id)
+        if not os.path.exists(db_file):
+            print(f"[DB] 初始化仓库 {wh_id} 数据库: {os.path.basename(db_file)}")
+            init_db(wh_id)
+        else:
+            # 确保已有数据库包含新增的表（schema 升级）
+            _ensure_schema(wh_id)
+
+
+def _ensure_schema(warehouse_id):
+    """确保已有数据库包含所有表（新增表的安全创建）"""
+    _conn = get_db(warehouse_id)
     _conn.execute('''
         CREATE TABLE IF NOT EXISTS picking_progress_snapshot (
             logical_date TEXT,
@@ -397,3 +436,7 @@ else:
     ''')
     _conn.commit()
     _conn.close()
+
+
+# 模块加载时初始化所有仓库的数据库
+init_all_warehouses()

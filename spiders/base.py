@@ -14,8 +14,33 @@ from token_manager import get_access_token, invalidate_token, TOKEN_STATUS, PROX
 REQUEST_TIMEOUT = 15
 NEW_STAFF_DAYS = 7
 STAGNANT_MINUTES = 10
-WAREHOUSE_ID = "428"
 BASE_URL = "https://klwms.meituan.com"
+
+# ===================== 多仓库配置 =====================
+WAREHOUSES = {
+    "428": {"name": "深圳凤岗仓", "short_name": "凤岗"},
+    "636": {"name": "深圳清溪仓", "short_name": "清溪"},
+}
+DEFAULT_WAREHOUSE_ID = "428"
+_current_warehouse_id = DEFAULT_WAREHOUSE_ID
+
+
+def get_warehouse_id():
+    """获取当前选中的仓库ID"""
+    return _current_warehouse_id
+
+
+
+def get_warehouse_name(wh_id=None):
+    """获取仓库中文名称"""
+    wh_id = wh_id or _current_warehouse_id
+    return WAREHOUSES.get(wh_id, {}).get("name", f"仓库{wh_id}")
+
+
+# 保持向后兼容：WAREHOUSE_ID 作为属性访问时返回当前选中的仓库ID
+# 注意：各模块 import WAREHOUSE_ID 后使用的是导入时的值，
+# 因此需要在使用处改为调用 get_warehouse_id()
+WAREHOUSE_ID = DEFAULT_WAREHOUSE_ID
 
 
 # ===================== 工具函数 =====================

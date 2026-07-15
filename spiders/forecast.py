@@ -14,39 +14,43 @@ import json
 import os
 from datetime import datetime, timedelta
 from database import get_db
+from spiders.base import get_warehouse_id, get_warehouse_name, WAREHOUSES, DEFAULT_WAREHOUSE_ID
 
 DASHBOARD_URL = "https://bi.sankuai.com/dashboard/controller/205353"
-TARGET_WAREHOUSE = "深圳凤岗仓"
 
 # catdesk CLI 路径
 CATDESK_PS1 = os.path.join(os.path.expanduser("~"), ".catdesk", "bin", "catdesk.ps1")
 
-# 提取脚本：从第一个表格中找 共享仓名称 包含"凤岗"的行，提取预测件量
-EXTRACT_SCRIPT = (
-    '(function(){'
-    'var tables=document.querySelectorAll("table");'
-    'if(tables.length===0)return JSON.stringify({found:false,error:"no_tables"});'
-    'var table=tables[0];'
-    'var rows=table.querySelectorAll("tr");'
-    'if(rows.length<2)return JSON.stringify({found:false,error:"no_rows"});'
-    'var headers=[];'
-    'var hc=rows[0].querySelectorAll("th,td");'
-    'for(var h=0;h<hc.length;h++)headers.push(hc[h].innerText.trim());'
-    'var nameIdx=-1,qtyIdx=-1;'
-    'for(var h=0;h<headers.length;h++){'
-    'if(headers[h]==="共享仓名称")nameIdx=h;'
-    'if(headers[h].indexOf("预测件量")>=0)qtyIdx=h}'
-    'if(nameIdx<0||qtyIdx<0)return JSON.stringify({found:false,error:"missing_columns",headers:headers});'
-    'for(var r=1;r<rows.length;r++){'
-    'var cells=rows[r].querySelectorAll("td");'
-    'if(cells.length<=Math.max(nameIdx,qtyIdx))continue;'
-    'var name=cells[nameIdx].innerText.trim();'
-    'if(name.indexOf("凤岗")>=0){'
-    'var qtyText=cells[qtyIdx].innerText.trim();'
-    'var qty=parseInt(qtyText.replace(/,/g,""));'
-    'return JSON.stringify({found:true,value:qty,raw:qtyText,warehouse:name})}}'
-    'return JSON.stringify({found:false,error:"no_fenggang",rowCount:rows.length})})()'
-)
+def _build_extract_script(warehouse_id=None):
+    """动态生成提取脚本，根据仓库配置匹配对应的仓库名称"""
+    wh_id = str(warehouse_id) if warehouse_id else DEFAULT_WAREHOUSE_ID
+    wh_info = WAREHOUSES.get(wh_id, {})
+    short_name = wh_info.get("short_name", "凤岗")
+    return (
+        '(function(){'
+        'var tables=document.querySelectorAll("table");'
+        'if(tables.length===0)return JSON.stringify({found:false,error:"no_tables"});'
+        'var table=tables[0];'
+        'var rows=table.querySelectorAll("tr");'
+        'if(rows.length<2)return JSON.stringify({found:false,error:"no_rows"});'
+        'var headers=[];'
+        'var hc=rows[0].querySelectorAll("th,td");'
+        'for(var h=0;h<hc.length;h++)headers.push(hc[h].innerText.trim());'
+        'var nameIdx=-1,qtyIdx=-1;'
+        'for(var h=0;h<headers.length;h++){'
+        'if(headers[h]==="共享仓名称")nameIdx=h;'
+        'if(headers[h].indexOf("预测件量")>=0)qtyIdx=h}'
+        'if(nameIdx<0||qtyIdx<0)return JSON.stringify({found:false,error:"missing_columns",headers:headers});'
+        'for(var r=1;r<rows.length;r++){'
+        'var cells=rows[r].querySelectorAll("td");'
+        'if(cells.length<=Math.max(nameIdx,qtyIdx))continue;'
+        'var name=cells[nameIdx].innerText.trim();'
+        f'if(name.indexOf("{short_name}")>=0){{'
+        'var qtyText=cells[qtyIdx].innerText.trim();'
+        'var qty=parseInt(qtyText.replace(/,/g,""));'
+        'return JSON.stringify({found:true,value:qty,raw:qtyText,warehouse:name})}}'
+        f'return JSON.stringify({{found:false,error:"no_{short_name}",rowCount:rows.length}})}})() '
+    )
 
 
 def _run_catdesk_browser(action_json):
@@ -92,16 +96,18 @@ def _run_catdesk_browser(action_json):
             os.unlink(tmp_file.name)
 
 
-def fetch_forecast():
+def fetch_forecast(warehouse_id=None):
     """
-    抓取深圳凤岗仓 T+1 的销售预测值。
+    抓取指定仓库 T+1 的销售预测值。
     通过 catdesk 浏览器打开看板 → 等待表格加载 → 提取数据 → 写入数据库。
     返回预测件数(int)，失败返回 None。
     """
+    wh_id = str(warehouse_id) if warehouse_id else DEFAULT_WAREHOUSE_ID
     tomorrow = datetime.now() + timedelta(days=1)
     logical_date = tomorrow.strftime("%Y-%m-%d")
 
-    print(f"[预测] 开始抓取深圳凤岗仓 T+1({logical_date}) 预测值 (catdesk 浏览器)...")
+    wh_name = get_warehouse_name(wh_id)
+    print(f"[预测] 开始抓取{wh_name} T+1({logical_date}) 预测值 (catdesk 浏览器)...")
 
     # 1. 导航到看板页面
     nav_result = _run_catdesk_browser({
@@ -149,7 +155,7 @@ def fetch_forecast():
     # 4. 执行提取脚本
     eval_result = _run_catdesk_browser({
         "action": "evaluate",
-        "script": EXTRACT_SCRIPT
+        "script": _build_extract_script(wh_id)
     })
     if not eval_result or not eval_result.get("success"):
         print(f"[预测] 执行提取脚本失败: {eval_result}")
@@ -168,14 +174,14 @@ def fetch_forecast():
 
     if not result.get("found"):
         error = result.get("error", "unknown")
-        print(f"[预测] 未找到深圳凤岗仓预测数据, 原因: {error}")
+        print(f"[预测] 未找到{wh_name}预测数据, 原因: {error}")
         return None
 
     forecast_qty = result["value"]
-    print(f"[预测] 深圳凤岗仓 T+1({logical_date}) 预测件数: {forecast_qty} (原始值: {result.get('raw')})")
+    print(f"[预测] {wh_name} T+1({logical_date}) 预测件数: {forecast_qty} (原始值: {result.get('raw')})")
 
     # 5. 写入数据库
-    conn = get_db()
+    conn = get_db(wh_id)
     c = conn.cursor()
     c.execute('''INSERT OR REPLACE INTO sales_forecast
                  (logical_date, forecast_qty, fetched_at)
@@ -187,10 +193,11 @@ def fetch_forecast():
     return forecast_qty
 
 
-def get_today_forecast():
+def get_today_forecast(warehouse_id=None):
     """获取今日预测值（从数据库读取，不触发抓取）"""
+    wh_id = str(warehouse_id) if warehouse_id else DEFAULT_WAREHOUSE_ID
     logical_date = datetime.now().strftime("%Y-%m-%d")
-    conn = get_db()
+    conn = get_db(wh_id)
     c = conn.cursor()
     c.execute('SELECT forecast_qty FROM sales_forecast WHERE logical_date = ?', (logical_date,))
     row = c.fetchone()
@@ -198,10 +205,11 @@ def get_today_forecast():
     return row["forecast_qty"] if row else None
 
 
-def get_tomorrow_forecast():
+def get_tomorrow_forecast(warehouse_id=None):
     """获取次日预测值（从数据库读取，不触发抓取）"""
+    wh_id = str(warehouse_id) if warehouse_id else DEFAULT_WAREHOUSE_ID
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    conn = get_db()
+    conn = get_db(wh_id)
     c = conn.cursor()
     c.execute('SELECT forecast_qty FROM sales_forecast WHERE logical_date = ?', (tomorrow,))
     row = c.fetchone()

@@ -1058,6 +1058,7 @@
     <div class="marquee-inner" id="marqueeInner"></div>
 </div>
 <div class="top-actions" style="position: absolute; top: 10px; right: 20px; z-index: 100; display:flex; align-items:center; gap:8px;">
+    <span id="warehouseNameBadge" style="font-size:0.75rem; padding:4px 10px; border-radius:5px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">📦 加载中...</span>
     <span class="update-time" id="lastUpdate">⏱ 更新中...</span>
     <button id="authBtn" class="top-btn" onclick="toggleAuth()" style="font-size: 0.7rem; padding: 4px 10px; border-radius: 5px; cursor: pointer; background: rgba(168,85,247,0.1); color: #a855f7; border: 1px solid rgba(168,85,247,0.3); transition: all 0.2s ease;" title="登录查看详细产出">🔐 登录</button>
     <a href="/" class="top-btn" style="font-size:0.8rem; padding:4px 10px; border-radius:5px; color:#94a3b8; border:1px solid #334155; text-decoration:none; background:rgba(255,255,255,0.04);">← 返回目录</a>
@@ -1257,6 +1258,10 @@
 <script src="/static/echarts.min.js"></script>
 <script src="/static/auth_check.js"></script>
 <script>
+    // 当前仓库（客户端本地存储，来自 portal 页面的仓库选择）
+    const warehouseId = localStorage.getItem('warehouseId') || '428';
+    const WAREHOUSE_NAMES = { '428': '深圳凤岗仓', '636': '深圳清溪仓' };
+
     const chart = echarts.init(document.getElementById('echartMain'), 'dark');
     const waveColors = { '凌晨达': '#ff9800', '上午达': '#00c6ff', '下午达': '#00e676' };
 
@@ -1360,6 +1365,14 @@ return s || name;
 
     // 初始化按钮 UI
     updateAuthUI();
+
+    // 显示当前仓库名称
+    (function() {
+        const badge = document.getElementById('warehouseNameBadge');
+        if (badge) {
+            badge.textContent = '📦 ' + (WAREHOUSE_NAMES[warehouseId] || warehouseId);
+        }
+    })();
 
 
     function handleTeamFilterChange(value) {
@@ -1686,9 +1699,9 @@ return s || name;
         }
     }
 
-    async function fetchData() {
-        try {
-            const res = await fetch('/api/dashboard');
+async function fetchData() {
+try {
+const res = await fetch(`/api/dashboard?warehouseId=${warehouseId}`);
             const data = await res.json();
 
             // 更新顶部统计数据
@@ -1937,9 +1950,9 @@ return s || name;
         document.body.removeChild(link);
     }
 
-    async function fetchStagnant() {
-        try {
-            const res = await fetch('/api/picking_stagnant');
+async function fetchStagnant() {
+try {
+const res = await fetch(`/api/picking_stagnant?warehouseId=${warehouseId}`);
             const rows = await res.json();
 
             latestStagnantData = rows || [];
@@ -2134,9 +2147,9 @@ return s || name;
         return areaName.slice(0, 4);
     }
 
-    async function fetchPickingProgress() {
-        try {
-            const res = await fetch('/api/picking_in_progress');
+async function fetchPickingProgress() {
+try {
+const res = await fetch(`/api/picking_in_progress?warehouseId=${warehouseId}`);
             const data = await res.json();
             if (!data.ok) {
                 document.getElementById('pickingWorkerList').innerHTML = '<div class="stagnant-empty">数据加载失败</div>';
@@ -2410,9 +2423,9 @@ return s || name;
         btn.textContent = '处理中...'; btn.disabled = true;
 
         try {
-            const res = await fetch('/api/exclude_worker', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: _excludeName, exclude: _excludeAction })
+const res = await fetch(`/api/exclude_worker?warehouseId=${warehouseId}`, {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ name: _excludeName, exclude: _excludeAction })
             });
             const data = await res.json();
             if (data.ok) { window.location.reload(); }

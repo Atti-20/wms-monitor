@@ -7,8 +7,17 @@ from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime
 import sqlite3
 import database
+from spiders.base import WAREHOUSES, DEFAULT_WAREHOUSE_ID
 
 bp = Blueprint('attendance', __name__)
+
+
+def _req_warehouse_id():
+    """从请求参数中获取仓库ID（客户端级别，不影响全局状态）"""
+    wh_id = request.args.get('warehouseId', '').strip()
+    if wh_id and wh_id in WAREHOUSES:
+        return wh_id
+    return DEFAULT_WAREHOUSE_ID
 
 
 # ======================================================================
@@ -36,10 +45,11 @@ def attendance_api():
     """
     from spiders.attendance import AttendanceService
 
+    wh_id = _req_warehouse_id()
     target_date = request.args.get('date', datetime.now().strftime("%Y-%m-%d"))
     current_team_map = AttendanceService.get_team_map()
 
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT name, team_name, start_time
@@ -148,7 +158,8 @@ def attendance_refresh():
 @bp.route('/api/attendance/history')
 def attendance_history():
     """查询有数据的历史日期列表。"""
-    conn = database.get_db()
+    wh_id = _req_warehouse_id()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT DISTINCT attendance_date
@@ -174,6 +185,7 @@ def attendance_gantt():
     """
     from spiders.attendance import AttendanceService
 
+    wh_id = _req_warehouse_id()
     target_date = request.args.get('date', datetime.now().strftime("%Y-%m-%d"))
 
     # 从数据库读取已保存的甘特图明细
@@ -190,7 +202,7 @@ def attendance_gantt():
         return jsonify(empty)
 
     # 读取该日各班组整点出勤数据（用于折叠态汇总）
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT hour_slot, team_name, head_count
@@ -254,9 +266,10 @@ def attendance_export():
     }
     出勤时长 = 下班时间 - 上班时间（支持跨天计算，格式 'Xh Ym'）
     """
+    wh_id = _req_warehouse_id()
     target_date = request.args.get('date', datetime.now().strftime("%Y-%m-%d"))
 
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT g.name, g.team_name, g.start_time, g.end_time,
@@ -410,11 +423,12 @@ def sync_system_teams():
     from spiders.base import get_shared_session, request_with_retry
     import time as _time
 
+    wh_id = _req_warehouse_id()
     try:
         session = get_shared_session()
         params = {
             "warehouseValidity": "EFFECTIVE",
-            "warehouseIdList": "428",
+            "warehouseIdList": wh_id,
             "jobStatus": "INCUMBENCY",
             "pageNo": 1,
             "pageSize": 1000,
@@ -436,7 +450,7 @@ def sync_system_teams():
                 system_map[name] = team
 
         # 更新 worker_info_cache
-        conn = database.get_db()
+        conn = database.get_db(wh_id)
         c = conn.cursor()
         c.execute("SELECT name, team_name FROM worker_info_cache")
         cached = {row["name"]: row["team_name"] for row in c.fetchall()}

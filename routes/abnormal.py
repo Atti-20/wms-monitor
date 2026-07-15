@@ -8,9 +8,17 @@ from collections import OrderedDict
 from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime, timedelta
 import database
-from spiders.base import get_logical_date
+from spiders.base import get_logical_date, WAREHOUSES, DEFAULT_WAREHOUSE_ID
 
 bp = Blueprint('abnormal', __name__)
+
+
+def _req_warehouse_id():
+    """从请求参数中获取仓库ID（客户端级别，不影响全局状态）"""
+    wh_id = request.args.get('warehouseId', '').strip()
+    if wh_id and wh_id in WAREHOUSES:
+        return wh_id
+    return DEFAULT_WAREHOUSE_ID
 
 
 @bp.route('/abnormal')
@@ -25,12 +33,13 @@ def abnormal_page():
 
 @bp.route('/api/abnormal_parcels')
 def get_abnormal_parcels():
+    wh_id = _req_warehouse_id()
     now = datetime.now()
     logical_today = now - timedelta(days=1) if now.hour < 8 else now
     logical_tomorrow = logical_today + timedelta(days=1)
     appointment_date = logical_tomorrow.strftime("%Y-%m-%d")
 
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
 
     c.execute('''
@@ -74,12 +83,13 @@ def get_abnormal_parcels():
 @bp.route('/api/abnormal_parcels/process', methods=['POST'])
 def process_abnormal_parcel():
     """标记取消包裹为已处理 / 未处理"""
+    wh_id = _req_warehouse_id()
     data = request.get_json(force=True)
     record_id = data.get('id')
     is_processed = data.get('is_processed', 0)
     if record_id is None:
         return jsonify({'ok': False, 'msg': '缺少 id'}), 400
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('UPDATE abnormal_parcels SET is_processed = ? WHERE id = ?', (is_processed, record_id))
     conn.commit()

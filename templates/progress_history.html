@@ -176,16 +176,20 @@ html { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparen
 
 <script src="/static/echarts.min.js"></script>
 <script>
+// 当前仓库（客户端本地存储，来自 portal 页面的仓库选择）
+const warehouseId = localStorage.getItem('warehouseId') || '428';
+
 const mainChart = echarts.init(document.getElementById('mainChart'), 'dark');
 const waveChart = echarts.init(document.getElementById('waveChart'), 'dark');
 const waveColors = { '凌晨达': '#ffd600', '上午达': '#90caf9', '下午达': '#00e676' };
 
 async function loadData() {
-    const res = await fetch('/api/progress_history');
+    const res = await fetch(`/api/progress_history?warehouseId=${warehouseId}`);
     const data = await res.json();
 
+    const WAREHOUSE_NAMES = { '428': '深圳凤岗仓', '636': '深圳清溪仓' };
     document.getElementById('headerMeta').textContent =
-        `日期: ${data.logical_date}　数据更新时间: ${data.current_time}`;
+        `仓库: ${WAREHOUSE_NAMES[warehouseId] || warehouseId}　日期: ${data.logical_date}　数据更新时间: ${data.current_time}`;
 
     // === Summary Cards ===
     const workSlots = data.work_slots || [];

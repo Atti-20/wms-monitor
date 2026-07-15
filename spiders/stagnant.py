@@ -6,19 +6,22 @@
 from datetime import datetime, timedelta
 from database import get_db
 from spiders.base import (
-    request_with_retry, parse_ms_timestamp, WAREHOUSE_ID, get_shared_session
+    request_with_retry, parse_ms_timestamp, get_warehouse_id, get_shared_session
 )
 
 # 卡单判定阈值（分钟）
 STAGNANT_THRESHOLD_MINUTES = 3
 
 
-def check_picking_stagnant():
+def check_picking_stagnant(warehouse_id=None):
     """
     拣货卡单监控，检测两种异常：
     1. 「拣完未提交」：实拣 >= 应拣，但 pickStatus 超过 3 分钟仍未变为 picked
     2. 「未完成停滞」：实拣 < 应拣，但 lastModifyTime 超过 3 分钟未更新
     """
+    if warehouse_id is None:
+        warehouse_id = get_warehouse_id()
+    wh_id = str(warehouse_id)
     session = get_shared_session()
     print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 检测拣货卡单...")
 
@@ -37,8 +40,8 @@ def check_picking_stagnant():
         "deliveryRegionIds": "",
         "pageNo": 1,
         "pageSize": 1000,
-        "wareHouseId": WAREHOUSE_ID,
-        "warehouseId": WAREHOUSE_ID,
+"wareHouseId": wh_id,
+"warehouseId": wh_id,
     }
 
     res = request_with_retry(session, api_pick, params)
@@ -103,7 +106,7 @@ def check_picking_stagnant():
         cnt2 = sum(1 for x in stagnant_list if x["alert_reason"] == "未完成停滞")
         print(f"发现告警 {len(stagnant_list)} 条（拣完未提交:{cnt1} 未完成停滞:{cnt2}），正在写入数据库...")
 
-    conn = get_db()
+    conn = get_db(wh_id)
     c = conn.cursor()
     try:
         for item in stagnant_list:

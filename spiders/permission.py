@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 from database import get_db
 from spiders.base import (
-    request_with_retry, get_shared_session, WAREHOUSE_ID, BASE_URL
+    request_with_retry, get_shared_session, get_warehouse_id, BASE_URL
 )
 
 # 权限码定义
@@ -43,7 +43,7 @@ def _resolve_user_ids(session, name):
     params = {
         "name": name,
         "warehouseValidity": "EFFECTIVE",
-        "warehouseIdList": WAREHOUSE_ID,
+        "warehouseIdList": get_warehouse_id(),
         "jobStatus": "INCUMBENCY",
         "pageNo": 1,
         "pageSize": 20,

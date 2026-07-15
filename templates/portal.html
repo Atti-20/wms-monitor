@@ -268,6 +268,48 @@
             box-shadow: var(--shadow-glow-blue);
         }
 
+        /* 仓库选择器 */
+        .warehouse-switcher {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 1.8rem;
+            position: relative;
+            z-index: 1;
+        }
+        .wh-btn {
+            padding: 8px 20px;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border-medium);
+            background: var(--surface-2);
+            color: var(--text-secondary);
+            transition: all var(--duration-normal) var(--ease-out);
+            position: relative;
+            overflow: hidden;
+        }
+        .wh-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--text-main);
+            background: var(--surface-3);
+        }
+        .wh-btn.active {
+            background: var(--accent-blue);
+            color: #0c1929;
+            border-color: var(--accent-blue);
+            font-weight: 600;
+            box-shadow: var(--shadow-glow-blue);
+        }
+        .wh-btn.active:hover {
+            opacity: 0.9;
+        }
+        .wh-btn.switching {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
         /* 动画 */
         .nav-card { animation: fadeInUp var(--duration-slow) var(--ease-out) both; width: 280px; }
         .card-1 { animation-delay: 0ms; }
@@ -325,6 +367,9 @@
         📦 WMS 综合监控管理系统
         <span>仓库作业全链路监控平台</span>
     </div>
+    <div class="warehouse-switcher" id="warehouseSwitcher">
+        <!-- 由 JS 动态渲染 -->
+    </div>
     <div class="card-container">
         <a href="/dashboard" class="nav-card card-1" target="_blank">
             <span class="card-icon">📊</span>
@@ -369,6 +414,35 @@
 
     <script>
     (function() {
+        // ========== 仓库切换（客户端本地存储，不再依赖服务端全局切换） ==========
+        const whSwitcher = document.getElementById('warehouseSwitcher');
+        let currentWarehouse = localStorage.getItem('warehouseId') || '428';
+
+        async function loadWarehouses() {
+            try {
+                const res = await fetch('/api/warehouse_list');
+                const data = await res.json();
+                if (!data.ok) return;
+                // 忽略服务端返回的 active 字段，以 localStorage 中保存的仓库为准
+                whSwitcher.innerHTML = data.warehouses.map(wh =>
+                    `<button class="wh-btn${wh.id === currentWarehouse ? ' active' : ''}" data-id="${wh.id}" onclick="switchWarehouse('${wh.id}')">${wh.name}</button>`
+                ).join('');
+            } catch(e) {}
+        }
+
+        window.switchWarehouse = function(whId) {
+            if (whId === currentWarehouse) return;
+            currentWarehouse = whId;
+            localStorage.setItem('warehouseId', whId);
+            const btns = whSwitcher.querySelectorAll('.wh-btn');
+            btns.forEach(b => {
+                b.classList.toggle('active', b.dataset.id === whId);
+            });
+        };
+
+        loadWarehouses();
+
+        // ========== Token 状态管理 ==========
         const SILENT_REFRESH_COOLDOWN = 60000;
         const CHECK_INTERVAL = 15000;
         let lastSilentRefreshTime = 0;

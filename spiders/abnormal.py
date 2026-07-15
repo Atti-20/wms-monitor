@@ -5,11 +5,14 @@
 """
 from datetime import datetime, timedelta
 from database import get_db
-from spiders.base import request_with_retry, WAREHOUSE_ID, get_shared_session
+from spiders.base import request_with_retry, get_warehouse_id, get_shared_session
 
 
-def fetch_abnormal_parcels():
+def fetch_abnormal_parcels(warehouse_id=None):
     """抓取并分析包裹数量异常明细 (本地缓存防重 + 逻辑熔断)"""
+    if warehouse_id is None:
+        warehouse_id = get_warehouse_id()
+    _wh_id = str(warehouse_id)
     session = get_shared_session()
     print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [INFO] 开始智能巡检异常包裹...")
 
@@ -23,7 +26,7 @@ def fetch_abnormal_parcels():
     start_time = f"{logical_today.strftime('%Y-%m-%d')} 06:00:00"
     end_time = f"{logical_tomorrow.strftime('%Y-%m-%d')} 12:00:00"
 
-    conn = get_db()
+    conn = get_db(_wh_id)
     c = conn.cursor()
 
     try:
@@ -41,7 +44,7 @@ def fetch_abnormal_parcels():
         for wh_id in target_warehouses:
             api_parcel_list = "/haina/ojs/rdc/r/containerParcelPrintList"
             params1 = {
-                "warehouseId": WAREHOUSE_ID,
+                "warehouseId": _wh_id,
                 "appointmentTime": appointment_date,
                 "allotInWarehouseId": wh_id,
                 "containerPrintTaskStatus": "",
@@ -52,7 +55,7 @@ def fetch_abnormal_parcels():
                 "asc": "true",
                 "pageNo": 1,
                 "pageSize": 200,
-                "wareHouseId": WAREHOUSE_ID,
+                "wareHouseId": _wh_id,
             }
 
             res1 = request_with_retry(session, api_parcel_list, params1)
@@ -84,8 +87,8 @@ def fetch_abnormal_parcels():
                     "deliveryRegionIds": "",
                     "pageNo": 1,
                     "pageSize": 20,
-                    "wareHouseId": WAREHOUSE_ID,
-                    "warehouseId": WAREHOUSE_ID,
+                    "wareHouseId": _wh_id,
+                    "warehouseId": _wh_id,
                 }
 
                 res3 = request_with_retry(session, api_pick, params3)
@@ -105,8 +108,8 @@ def fetch_abnormal_parcels():
                 params2 = {
                     "allotInWarehouseId": wh_id,
                     "containerPrintTaskNo": task_no,
-                    "warehouseId": WAREHOUSE_ID,
-                    "wareHouseId": WAREHOUSE_ID,
+                    "warehouseId": _wh_id,
+                    "wareHouseId": _wh_id,
                 }
 
                 res2 = request_with_retry(session, api_detail, params2)

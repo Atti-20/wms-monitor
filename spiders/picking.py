@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import get_db
 from spiders.base import (
     request_with_retry, safe_get_row_value, map_wave_name_to_id,
-    parse_ms_timestamp, WAREHOUSE_ID, NEW_STAFF_DAYS, STAGNANT_MINUTES,
+    parse_ms_timestamp, get_warehouse_id, NEW_STAFF_DAYS, STAGNANT_MINUTES,
     get_shared_session
 )
 
@@ -20,7 +20,7 @@ _attendance_last_query = {}
 # 每日人员标签刷新：记录最后一次刷新的逻辑日期，确保每天只刷新一次
 _last_label_refresh_date = None
 
-def _daily_refresh_worker_labels(session, actual_now, logical_date, active_names=None):
+def _daily_refresh_worker_labels(session, actual_now, logical_date, active_names=None, warehouse_id=None):
     """
     每天第一次运行时，批量刷新今日有拣货记录人员的标签。
     临时工/固定工身份(is_temp_worker)、新人标志(is_new_staff)、班组(team_name)
@@ -44,8 +44,9 @@ def _daily_refresh_worker_labels(session, actual_now, logical_date, active_names
         print("[标签刷新] 今日无拣货记录人员，跳过")
         return
 
+    wh_id = str(warehouse_id) if warehouse_id else None
     # 步骤1：短暂开连接读取人员名单，仅保留今日有拣货记录的人员
-    conn = get_db()
+    conn = get_db(wh_id)
     c = conn.cursor()
     c.execute("SELECT name, entry_time FROM worker_info_cache")
     all_cached = [dict(row) for row in c.fetchall() if row["name"] in active_names]
@@ -65,7 +66,7 @@ def _daily_refresh_worker_labels(session, actual_now, logical_date, active_names
         params = {
             "name": name,
             "warehouseValidity": "EFFECTIVE",
-            "warehouseIdList": WAREHOUSE_ID,
+            "warehouseIdList": wh_id or get_warehouse_id(),
             "jobStatus": "INCUMBENCY",
             "pageNo": 1,
             "pageSize": 20,
@@ -99,7 +100,7 @@ def _daily_refresh_worker_labels(session, actual_now, logical_date, active_names
 
     # 步骤3：短暂开连接批量写入
     if updates:
-        conn = get_db()
+        conn = get_db(wh_id)
         c = conn.cursor()
         for upd in updates:
             c.execute('''
@@ -126,16 +127,22 @@ SEASONING_AREAS = {"酒饮米面G2拣货区", "爆品米面G3拣货区"}
 TARGET_AREAS = FEEDING_AREAS | SEASONING_AREAS
 
 
-def process_and_save():
+def process_and_save(warehouse_id=None):
     """核心逻辑：抓取数据、处理缓存、计算人效、写入数据库
+    
+    Args:
+        warehouse_id: 指定抓取的仓库ID。None 时使用 get_warehouse_id() 默认值。
     
     架构说明：为避免 SQLite 'database is locked' 错误，本函数严格分为两个阶段：
     阶段一（纯网络IO）：通过 API 抓取所有原始数据，存入内存
     阶段二（纯数据库IO）：打开连接 → 快速写入 → 立即关闭
     这样数据库连接持有时间从数十秒缩短到数百毫秒。
     """
+    if warehouse_id is None:
+        warehouse_id = get_warehouse_id()
+    wh_id = str(warehouse_id)
     session = get_shared_session()
-    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [START] 触发智能抓取与缓存融合计算...")
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [START] 仓库{wh_id} 触发智能抓取与缓存融合计算...")
 
     actual_now = datetime.now()
     logical_today = actual_now - timedelta(days=1) if actual_now.hour < 8 else actual_now
@@ -156,8 +163,8 @@ def process_and_save():
         "billType": "DB",
         "deliveryRegionIds": "",
         "pageSize": 200,
-        "wareHouseId": WAREHOUSE_ID,
-        "warehouseId": WAREHOUSE_ID,
+        "wareHouseId": wh_id,
+        "warehouseId": wh_id,
     }
 
     def _fetch_picking_records():
@@ -221,8 +228,8 @@ def process_and_save():
             "allotProductionMode": "BALANCE_PRODUCTION",
             "pageNo": 1,
             "pageSize": 1,
-            "wareHouseId": WAREHOUSE_ID,
-            "warehouseId": WAREHOUSE_ID,
+            "wareHouseId": wh_id,
+            "warehouseId": wh_id,
         }
         res = request_with_retry(session, api_alloc, params)
         if not res:
@@ -380,7 +387,7 @@ def process_and_save():
 
     def _fetch_wave_data(wid):
         params = {
-            "warehouseId": WAREHOUSE_ID,
+            "warehouseId": wh_id,
             "appointmentDate": tomorrow_date,
             "fulfillmentWaveId": wid,
             "pageNo": 1,
@@ -405,7 +412,7 @@ def process_and_save():
     # ================================================================
     conn = None
     try:
-        conn = get_db()
+        conn = get_db(wh_id)
         c = conn.cursor()
 
         # -- 写入 kv_store --
@@ -492,10 +499,10 @@ def process_and_save():
         # ===== 步骤3.5：每日首次运行刷新人员标签（需要API+DB交叉操作，单独开连接）=====
         # 只刷新今日实际有拣货记录的人员，而非全量 worker_info_cache（可能数百人），减少无意义的API调用
         active_names_for_label = {pd.get("handlerName") for pd in active_workers if pd.get("handlerName")}
-        _daily_refresh_worker_labels(session, actual_now, logical_today.strftime("%Y-%m-%d"), active_names_for_label)
+        _daily_refresh_worker_labels(session, actual_now, logical_today.strftime("%Y-%m-%d"), active_names_for_label, warehouse_id=wh_id)
 
         # ===== 步骤4：处理人员缓存和考勤（需要逐人查缓存+可能调API，单独事务）=====
-        conn = get_db()
+        conn = get_db(wh_id)
         c = conn.cursor()
 
         for picking_data in active_workers:
@@ -525,7 +532,7 @@ def process_and_save():
                 params_4 = {
                     "name": name,
                     "warehouseValidity": "EFFECTIVE",
-                    "warehouseIdList": WAREHOUSE_ID,
+                    "warehouseIdList": wh_id,
                     "jobStatus": "INCUMBENCY",
                     "pageNo": 1,
                     "pageSize": 20,
@@ -534,7 +541,7 @@ def process_and_save():
                 time.sleep(0.2)
 
                 # 网络请求完成后重新打开连接
-                conn = get_db()
+                conn = get_db(wh_id)
                 c = conn.cursor()
 
                 if res4:
@@ -614,7 +621,7 @@ def process_and_save():
                 api_att = "/hrm/attendance/r/query"
                 params_1 = {
                     "warehouseValidity": "EFFECTIVE",
-                    "warehouseId": WAREHOUSE_ID,
+                    "warehouseId": wh_id,
                     "labourUserName": name,
                     "attenceDate": current_month,
                     "pageNo": 1,
@@ -649,7 +656,7 @@ def process_and_save():
                             break
 
                 # 网络请求完成，重新打开连接写入考勤数据
-                conn = get_db()
+                conn = get_db(wh_id)
                 c = conn.cursor()
 
                 c.execute("""
@@ -803,7 +810,7 @@ def process_and_save():
 
         # ===== 步骤7：补查不在活跃列表中的停滞人员下班卡 =====
         # 先读取需要补查的人员列表（快速读操作）
-        conn = get_db()
+        conn = get_db(wh_id)
         c = conn.cursor()
         active_names = {pd.get("handlerName") for pd in active_workers if pd.get("handlerName")}
         c.execute("""
@@ -841,7 +848,7 @@ def process_and_save():
                     api_att = "/hrm/attendance/r/query"
                     params_att = {
                         "warehouseValidity": "EFFECTIVE",
-                        "warehouseId": WAREHOUSE_ID,
+                        "warehouseId": wh_id,
                         "labourUserName": sname,
                         "attenceDate": current_month,
                         "pageNo": 1,
@@ -870,7 +877,7 @@ def process_and_save():
 
                     if clockout_dt_str:
                         # 短暂开连接写入
-                        conn = get_db()
+                        conn = get_db(wh_id)
                         c = conn.cursor()
                         c.execute("""
                             UPDATE daily_attendance_cache 

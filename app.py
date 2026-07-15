@@ -204,6 +204,17 @@ def api_deactivate():
     return jsonify({"ok": True, "msg": "数据抓取已停止"})
 
 
+@app.route('/api/warehouse_list')
+def warehouse_list():
+    """获取支持的仓库列表（仓库选择由前端 localStorage 管理，服务端不保存状态）"""
+    from spiders.base import WAREHOUSES, DEFAULT_WAREHOUSE_ID
+    warehouses = [
+        {"id": wh_id, "name": info["name"], "short_name": info["short_name"]}
+        for wh_id, info in WAREHOUSES.items()
+    ]
+    return jsonify({"ok": True, "warehouses": warehouses, "default": DEFAULT_WAREHOUSE_ID})
+
+
 if __name__ == '__main__':
     # 启动 Cloudflare Tunnel（仅主进程，debug 模式下 reloader 会 fork 子进程）
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:

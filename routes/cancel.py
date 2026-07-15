@@ -9,9 +9,17 @@ from flask import Blueprint, render_template, jsonify, request, send_file
 import database
 import cancel_parcel
 from token_manager import get_access_token
-from spiders.base import get_logical_date
+from spiders.base import get_logical_date, WAREHOUSES, DEFAULT_WAREHOUSE_ID
 
 bp = Blueprint('cancel', __name__)
+
+
+def _req_warehouse_id():
+    """从请求参数中获取仓库ID（客户端级别，不影响全局状态）"""
+    wh_id = request.args.get('warehouseId', '').strip()
+    if wh_id and wh_id in WAREHOUSES:
+        return wh_id
+    return DEFAULT_WAREHOUSE_ID
 
 
 @bp.route('/cancel_detail')
@@ -21,8 +29,9 @@ def cancel_detail_page():
 
 @bp.route('/api/cancel_detail')
 def cancel_detail_api():
+    wh_id = _req_warehouse_id()
     date_str = request.args.get('date', get_logical_date())
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT * FROM cancel_parcel_log
@@ -64,8 +73,9 @@ def download_excel():
 
 @bp.route('/api/cancel_parcel_summary')
 def cancel_parcel_summary():
+    wh_id = _req_warehouse_id()
     date_str = request.args.get('date', get_logical_date())
-    conn = database.get_db()
+    conn = database.get_db(wh_id)
     c = conn.cursor()
     c.execute('''
         SELECT record_date, COUNT(*) as total_count,
